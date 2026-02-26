@@ -21,7 +21,7 @@ export interface FlashcardContent {
 export interface QuizQuestion {
   question: string;
   options: string[];
-  answer: number;
+  answer: string | number;
   explanation?: string;
 }
 

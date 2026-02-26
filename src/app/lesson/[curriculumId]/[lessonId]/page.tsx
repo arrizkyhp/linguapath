@@ -209,14 +209,15 @@ export default function LessonPage() {
           <h2 className="font-serif text-2xl font-semibold mb-6">{q.question}</h2>
           <div className="space-y-3 mb-6">
             {q.options.map((opt, i) => {
+              const isCorrect = q.answer === i || opt === q.answer
               let cls = "border-neutral-200 text-neutral-700 hover:border-neutral-400 bg-white"
               if (showExp) {
-                if (i === q.answer) cls = "border-green-400 bg-green-50 text-green-700"
+                if (isCorrect) cls = "border-green-400 bg-green-50 text-green-700"
                 else if (i === selectedAns) cls = "border-red-400 bg-red-50 text-red-700"
                 else cls = "border-neutral-100 bg-neutral-50 text-neutral-400"
               }
               return (
-                <button key={i} onClick={() => { if (!showExp) { setSelectedAns(i); setShowExp(true); if (i === q.answer) setCorrectCount(c => c + 1) } }}
+                <button key={i} onClick={() => { if (!showExp) { setSelectedAns(i); setShowExp(true); if (isCorrect) setCorrectCount(c => c + 1) } }}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}>
                   {opt}
                 </button>
@@ -426,9 +427,10 @@ export default function LessonPage() {
               <h2 className="font-serif text-xl font-semibold mb-6">{content.questions[qIdx].question}</h2>
               <div className="space-y-3 mb-6">
                 {content.questions[qIdx].options.map((opt, i) => {
+                  const isCorrect = content.questions[qIdx].answer === i || opt === content.questions[qIdx].answer
                   let cls = "border-neutral-200 text-neutral-700 hover:border-neutral-400 bg-white"
                   if (showExp) {
-                    if (i === content.questions[qIdx].answer) cls = "border-green-400 bg-green-50 text-green-700"
+                    if (isCorrect) cls = "border-green-400 bg-green-50 text-green-700"
                     else if (i === selectedAns) cls = "border-red-400 bg-red-50 text-red-700"
                     else cls = "border-neutral-100 bg-neutral-50 text-neutral-400"
                   }

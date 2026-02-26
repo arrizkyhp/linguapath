@@ -1,0 +1,107 @@
+{
+  "curriculum": {
+    "id": "my-curriculum-id",
+    "title": "My Curriculum Title",
+    "description": "Optional description of the curriculum",
+    "level": "B1",
+    "author": "Optional author name",
+    "modules": [
+      {
+        "id": "m1",
+        "title": "Module 1: Topic Name",
+        "units": [
+          {
+            "id": "u1",
+            "title": "Unit 1: Subtopic",
+            "lessons": [
+              {
+                "id": "l1",
+                "title": "Lesson 1: Title",
+                "xp": 50,
+                "type": "flashcard",
+                "content": {
+                  "cards": [
+                    {
+                      "front": "Front of card",
+                      "back": "Back of card",
+                      "example": "Optional example sentence"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "l2",
+                "title": "Lesson 2: Quiz",
+                "xp": 75,
+                "type": "quiz",
+                "content": {
+                  "questions": [
+                    {
+                      "question": "What is the correct answer?",
+                      "options": ["Option A", "Option B", "Option C", "Option D"],
+                      "answer": "Option A",
+                      "explanation": "Optional explanation"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "l3",
+                "title": "Lesson 3: Fill in the Blank",
+                "xp": 50,
+                "type": "fill_blank",
+                "content": {
+                  "sentences": [
+                    {
+                      "text": "The cat ___ on the mat.",
+                      "answer": "sat",
+                      "options": ["sat", "sit", "sitting", "sitted"],
+                      "explanation": "Past tense of 'sit'"
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "l4",
+                "title": "Lesson 4: Writing",
+                "xp": 100,
+                "type": "writing",
+                "content": {
+                  "prompt": "Write about your favorite hobby in at least 50 words.",
+                  "min_words": 50
+                }
+              },
+              {
+                "id": "l5",
+                "title": "Lesson 5: Speaking",
+                "xp": 75,
+                "type": "speech",
+                "content": {
+                  "prompt": "Introduce yourself in 30 seconds.",
+                  "duration_seconds": 30,
+                  "keywords_to_use": ["name", "hobby", "origin"]
+                }
+              },
+              {
+                "id": "l6",
+                "title": "Lesson 6: Reading",
+                "xp": 75,
+                "type": "reading",
+                "content": {
+                  "text": "The reading passage goes here...",
+                  "questions": [
+                    {
+                      "question": "What is the main idea?",
+                      "options": ["Option A", "Option B", "Option C"],
+                      "answer": "Option A"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

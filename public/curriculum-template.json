@@ -97,6 +97,23 @@
                     }
                   ]
                 }
+              },
+              {
+                "id": "l7",
+                "title": "Lesson 7: Listening",
+                "xp": 75,
+                "type": "listening",
+                "content": {
+                  "text": "Welcome to today's lesson about renewable energy. Solar panels convert sunlight into electricity, while wind turbines harness wind power. Both are clean and sustainable energy sources that help reduce carbon emissions.",
+                  "voice": "af_heart",
+                  "questions": [
+                    {
+                      "question": "What do solar panels convert?",
+                      "options": ["Wind", "Sunlight", "Water", "Coal"],
+                      "answer": "Sunlight"
+                    }
+                  ]
+                }
               }
             ]
           }

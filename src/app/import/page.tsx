@@ -227,7 +227,8 @@ export default function ImportPage() {
                 "title": "Lesson Title",
                 "xp": 50,
                 "type": "flashcard", // flashcard|quiz|fill_blank
-                                     // writing|speech|reading
+                                      // writing|speech|reading
+                                      // listening
                 "content": { ... }   // see docs
               }
             ]

@@ -6,7 +6,8 @@ export type LessonType =
   | "fill_blank"
   | "writing"
   | "speech"
-  | "reading";
+  | "reading"
+  | "listening";
 
 // ── Lesson Content Types ─────────────────────────────────────
 
@@ -55,13 +56,20 @@ export interface ReadingContent {
   questions: QuizQuestion[];
 }
 
+export interface ListeningContent {
+  text: string;
+  voice?: string;
+  questions: QuizQuestion[];
+}
+
 export type LessonContent =
   | FlashcardContent
   | QuizContent
   | FillBlankContent
   | WritingContent
   | SpeechContent
-  | ReadingContent;
+  | ReadingContent
+  | ListeningContent;
 
 // ── Curriculum Structure ─────────────────────────────────────
 

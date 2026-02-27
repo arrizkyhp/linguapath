@@ -18,4 +18,5 @@ export const LESSON_TYPE_CONFIG = {
   writing: { icon: "✍️", label: "Writing", color: "#16a34a" },
   speech: { icon: "🎤", label: "Speaking", color: "#dc2626" },
   reading: { icon: "📖", label: "Reading", color: "#b45309" },
+  listening: { icon: "🎧", label: "Listening", color: "#0891b2" },
 };

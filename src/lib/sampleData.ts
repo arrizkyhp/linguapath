@@ -238,6 +238,50 @@ At B2 level, your writing should demonstrate a range of vocabulary, grammatical 
                 keywords_to_use: ["furthermore", "in my opinion", "on the other hand", "for instance"],
               },
             },
+            {
+              id: "l9",
+              title: "Listening: Essay Structure",
+              xp: 60,
+              type: "listening",
+              content: {
+                text: "A well-structured essay consists of three main parts: the introduction, the body, and the conclusion. The introduction serves to present the topic and provide background information. It should end with a clear thesis statement — a sentence that expresses the main argument or purpose of the essay. The body of the essay is where you develop your argument. Each paragraph should focus on a single idea and begin with a topic sentence. The conclusion summarizes the main points and restates the thesis in different words.",
+                voice: "af_heart",
+                questions: [
+                  {
+                    question: "What are the three main parts of an essay?",
+                    options: [
+                      "Title, body, conclusion",
+                      "Introduction, body, conclusion",
+                      "Introduction, examples, conclusion",
+                      "Introduction, thesis, body",
+                    ],
+                    answer: "Introduction, body, conclusion",
+                    explanation: "The three main parts are introduction, body, and conclusion.",
+                  },
+                  {
+                    question: "What is the purpose of a thesis statement?",
+                    options: [
+                      "To summarize the conclusion",
+                      "To express the main argument of the essay",
+                      "To list all the evidence",
+                      "To introduce the writer",
+                    ],
+                    answer: "To express the main argument of the essay",
+                  },
+                  {
+                    question: "Where should each paragraph focus on?",
+                    options: [
+                      "Multiple ideas",
+                      "A single idea",
+                      "All the evidence",
+                      "The introduction only",
+                    ],
+                    answer: "A single idea",
+                    explanation: "Each paragraph should focus on a single idea with a topic sentence.",
+                  },
+                ],
+              },
+            },
           ],
         },
       ],

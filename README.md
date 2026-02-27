@@ -25,7 +25,7 @@ Open [http://localhost:3000](http://localhost:3000)
 - 🎯 **Placement Test** — find your CEFR level (A1–C2) automatically
 - 📚 **Curriculum Import** — import any curriculum via JSON file
 - 🔒 **Lock System** — lessons unlock progressively
-- 6 **Lesson Types**: flashcard, quiz, fill_blank, writing, speech, reading
+- 7 **Lesson Types**: flashcard, quiz, fill_blank, writing, speech, reading, listening
 - 📊 **Progress Tracking** — XP, streaks, completion tracking
 - ⚙️ **Settings** — change level, reset progress, clear data
 
@@ -72,3 +72,4 @@ Open [http://localhost:3000](http://localhost:3000)
 | `writing` | `{ prompt, min_words?, ai_feedback? }` |
 | `speech` | `{ prompt, duration_seconds, keywords_to_use? }` |
 | `reading` | `{ text, questions: [...] }` |
+| `listening` | `{ text, voice?, questions: [...] }` |

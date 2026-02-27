@@ -37,6 +37,7 @@ export interface ProgressMessage {
 
 export interface ModelReadyMessage {
   type: "MODEL_READY";
+  modelLoaded?: boolean;
 }
 
 export interface AudioReadyMessage {
@@ -147,22 +148,17 @@ async function generateAudio(
 
   const output = await kokoroTTS.generate(text, { voice });
 
-  if (!output) {
-    throw new Error("Kokoro.generate returned undefined");
-  }
+  if (!output) throw new Error("Kokoro.generate returned undefined");
 
-  const samples = output.audio;
-
-  if (!samples || !(samples instanceof Float32Array)) {
+  const samples: Float32Array = output.audio;
+  if (!samples || !(samples instanceof Float32Array))
     throw new Error("Invalid audio samples");
-  }
 
-  onProgress("generating", 80, "Converting to WAV...");
+  onProgress("generating", 90, "Converting to WAV...");
 
   const wavHeader = writeWavHeader(samples.length, 24000);
   const pcmData = floatTo16BitPCM(samples);
 
-  // Combine WAV header + PCM into one Uint8Array
   const wavBytes = new Uint8Array(wavHeader.byteLength + pcmData.byteLength);
   wavBytes.set(new Uint8Array(wavHeader), 0);
   wavBytes.set(new Uint8Array(pcmData), wavHeader.byteLength);

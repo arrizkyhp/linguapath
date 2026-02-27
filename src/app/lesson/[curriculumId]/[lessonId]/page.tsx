@@ -180,6 +180,7 @@ export default function LessonPage() {
 
   // Kokoro / Listening state
   const [kokoroLoading, setKokoroLoading] = useState(false);
+  const [isModelLoading, setIsModelLoading] = useState(false);
   const [kokoroProgress, setKokoroProgress] = useState(0);
   const [showKokoroFirstTimeMessage, setShowKokoroFirstTimeMessage] =
     useState(false);
@@ -233,31 +234,47 @@ export default function LessonPage() {
 
     if (typeof window === "undefined") return;
 
+    // Skip if worker already initialized (prevent double initialization)
+    if (kokoroWorkerRef.current) return;
+
     const worker = new Worker(
       new URL("@/workers/kokoro.worker.ts", import.meta.url),
       { type: "module" },
     );
     kokoroWorkerRef.current = worker;
+    setAudioGenerating(true);
 
     worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
       const response = e.data;
 
       if (response.type === "MODEL_READY") {
+        setWorkerReady(true);
+        setIsModelLoading(false);
         setKokoroLoading(false);
-        if (showKokoroFirstTimeMessage) {
-          localStorage.setItem("kokoro_model_loaded", "true");
-          setShowKokoroFirstTimeMessage(false);
-        }
-        worker.postMessage({
+        setAudioGenerating(true);
+
+        const generateMsg: GenerateAudioMessage = {
           type: "GENERATE_AUDIO",
           text: content.text,
           voice: content.voice || "af_heart",
-        });
+        };
+        worker.postMessage(generateMsg);
       } else if (response.type === "PROGRESS") {
         setKokoroProgress(response.progress);
         setGenerationProgress(response.progress);
         setGenerationMessage(response.message || "");
-        if (response.status === "loading") setKokoroLoading(true);
+
+        if (response.status === "loading") {
+          setIsModelLoading(true);
+          setKokoroLoading(true);
+          // Set localStorage on first loading progress (same pattern as Whisper)
+          if (showKokoroFirstTimeMessage && typeof window !== "undefined") {
+            localStorage.setItem("kokoro_model_loaded", "true");
+            setShowKokoroFirstTimeMessage(false);
+          }
+        } else if (response.status === "generating") {
+          setKokoroLoading(false);
+        }
       } else if (response.type === "AUDIO_READY") {
         // ✅ wavBytes is already a complete WAV file — just wrap in Blob
         const blob = new Blob([response.wavBytes.buffer as ArrayBuffer], { type: "audio/wav" });
@@ -1374,28 +1391,17 @@ export default function LessonPage() {
                   <Loader2 className="animate-spin text-cyan-600" size={20} />
                   <div className="flex-1">
                     <div className="text-sm font-medium text-cyan-800">
-                      {kokoroLoading
-                        ? "Loading TTS model..."
-                        : "Preparing audio..."}
+                      Loading TTS model...
                     </div>
                     <div className="text-xs text-cyan-600 mt-1">
                       Downloading Kokoro model (~80MB). This only happens once.
                     </div>
                     <Progress value={kokoroProgress} className="mt-2 h-2" />
-                    {generationMessage && kokoroLoading && (
+                    {generationMessage && (
                       <div className="text-xs text-cyan-700 mt-1">
                         {generationMessage}
                       </div>
                     )}
-                    <div className="text-sm font-medium text-cyan-800">
-                      {kokoroLoading
-                        ? "Loading TTS model..."
-                        : "Preparing audio..."}
-                    </div>
-                    <div className="text-xs text-cyan-600 mt-1">
-                      Downloading Kokoro model (~80MB). This only happens once.
-                    </div>
-                    <Progress value={kokoroProgress} className="mt-2 h-2" />
                   </div>
                 </div>
               </div>

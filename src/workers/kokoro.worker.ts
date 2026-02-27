@@ -59,8 +59,48 @@ export type WorkerResponse =
 // ── State ────────────────────────────────────────────────
 
 let kokoroTTS: any = null;
+const SAMPLE_RATE = 24000;
+const CHUNK_MAX_CHARS = 1000;
+const SILENCE_DURATION_MS = 200;
+const SILENCE_SAMPLES = Math.floor((SILENCE_DURATION_MS / 1000) * SAMPLE_RATE);
 
 // ── Helpers ──────────────────────────────────────────────
+
+function splitTextIntoChunks(text: string): string[] {
+  const chunks: string[] = [];
+  const sentences = text.split(/([.!?]+)/);
+  
+  let currentChunk = "";
+  
+  for (let i = 0; i < sentences.length; i++) {
+    const sentence = sentences[i];
+    
+    if (sentence.match(/^[.!?]+$/)) {
+      currentChunk += sentence;
+      if (currentChunk.length > 0) {
+        chunks.push(currentChunk.trim());
+        currentChunk = "";
+      }
+    } else if (sentence.trim()) {
+      if ((currentChunk + sentence).length > CHUNK_MAX_CHARS) {
+        if (currentChunk) chunks.push(currentChunk.trim());
+        currentChunk = sentence;
+      } else {
+        currentChunk += sentence;
+      }
+    }
+  }
+  
+  if (currentChunk.trim()) {
+    chunks.push(currentChunk.trim());
+  }
+  
+  return chunks;
+}
+
+function createSilence(numSamples: number): Float32Array {
+  return new Float32Array(numSamples);
+}
 
 function floatTo16BitPCM(input: Float32Array): ArrayBuffer {
   const output = new Int16Array(input.length);
@@ -144,20 +184,55 @@ async function generateAudio(
 ): Promise<Uint8Array> {
   if (!kokoroTTS) throw new Error("Model not loaded");
 
-  onProgress("generating", 10, "Generating speech...");
+  const chunks = splitTextIntoChunks(text);
+  
+  if (chunks.length === 0) {
+    throw new Error("No text to generate");
+  }
 
-  const output = await kokoroTTS.generate(text, { voice });
+  onProgress("generating", 10, `Generating speech (${chunks.length} chunk${chunks.length > 1 ? "s" : ""})...`);
 
-  if (!output) throw new Error("Kokoro.generate returned undefined");
+  const allSamples: Float32Array[] = [];
+  
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i];
+    
+    if (chunks.length > 1) {
+      onProgress("generating", 10 + Math.round((i / chunks.length) * 80), `Generating chunk ${i + 1}/${chunks.length}...`);
+    }
 
-  const samples: Float32Array = output.audio;
-  if (!samples || !(samples instanceof Float32Array))
-    throw new Error("Invalid audio samples");
+    const output = await kokoroTTS.generate(chunk, { voice });
 
-  onProgress("generating", 90, "Converting to WAV...");
+    if (!output) throw new Error(`Kokoro.generate returned undefined for chunk ${i + 1}`);
 
-  const wavHeader = writeWavHeader(samples.length, 24000);
-  const pcmData = floatTo16BitPCM(samples);
+    const samples: Float32Array = output.audio;
+    if (!samples || !(samples instanceof Float32Array)) {
+      throw new Error(`Invalid audio samples for chunk ${i + 1}`);
+    }
+
+    allSamples.push(samples);
+
+    if (i < chunks.length - 1) {
+      allSamples.push(createSilence(SILENCE_SAMPLES));
+    }
+  }
+
+  onProgress("generating", 90, "Combining audio...");
+
+  let totalLength = 0;
+  for (const samples of allSamples) {
+    totalLength += samples.length;
+  }
+
+  const combinedSamples = new Float32Array(totalLength);
+  let offset = 0;
+  for (const samples of allSamples) {
+    combinedSamples.set(samples, offset);
+    offset += samples.length;
+  }
+
+  const wavHeader = writeWavHeader(combinedSamples.length, SAMPLE_RATE);
+  const pcmData = floatTo16BitPCM(combinedSamples);
 
   const wavBytes = new Uint8Array(wavHeader.byteLength + pcmData.byteLength);
   wavBytes.set(new Uint8Array(wavHeader), 0);

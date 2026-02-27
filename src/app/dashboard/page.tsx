@@ -6,7 +6,6 @@ import { LEVEL_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import AppLayout from "@/components/AppLayout"
 import type { AppState } from "@/types/curriculum"
 import { Flame, Star, BookOpen, Trophy, ArrowRight } from "lucide-react"
 
@@ -27,6 +26,9 @@ export default function DashboardPage() {
     const s = loadState()
     if (!s.onboarding_complete) { router.push("/onboarding"); return }
     setState(s)
+    const handler = () => setState(loadState())
+    window.addEventListener("linguapath-state-update", handler)
+    return () => window.removeEventListener("linguapath-state-update", handler)
   }, [router])
 
   if (!state) return null
@@ -48,8 +50,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <AppLayout>
-      <div className="p-8 max-w-4xl">
+    <div className="p-8 max-w-4xl">
         {/* Header */}
         <div className="mb-8">
           <div className="text-xs tracking-widest uppercase text-neutral-400 mb-1">Welcome back</div>
@@ -80,13 +81,8 @@ export default function DashboardPage() {
             <Progress
               value={continueProgress}
               className="h-2.5"
-              indicatorClassName=""
-              style={{ "--tw-bg-opacity": 1 } as React.CSSProperties}
-            />
-            <div
-              className="h-2.5 rounded-full mt-0 -mt-2.5 transition-all"
-              style={{
-                width: `${continueProgress}%`,
+              indicatorClassName="transition-all"
+              indicatorStyle={{
                 background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}99)`,
               }}
             />
@@ -211,6 +207,5 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-    </AppLayout>
   )
 }

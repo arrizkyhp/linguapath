@@ -1,9 +1,8 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { loadState, getLessonProgress, isLessonUnlocked } from "@/lib/store"
+import { loadState, getLessonProgress, isLessonUnlocked, saveOpenTabs, loadOpenTabs } from "@/lib/store"
 import { LEVEL_CONFIG, LESSON_TYPE_CONFIG } from "@/lib/config"
-import AppLayout from "@/components/AppLayout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import type { AppState, Curriculum, Module, Unit } from "@/types/curriculum"
@@ -20,9 +19,12 @@ export default function CurriculumDetailPage() {
     const s = loadState()
     if (!s.onboarding_complete) { router.push("/onboarding"); return }
     setState(s)
-    // Open first module & unit by default
     const curr = s.curriculums.find((c) => c.id === id)
-    if (curr?.modules[0]) {
+    const saved = loadOpenTabs(id)
+    if (saved && saved.openModules.length > 0) {
+      setOpenModules(new Set(saved.openModules))
+      setOpenUnits(new Set(saved.openUnits))
+    } else if (curr?.modules[0]) {
       setOpenModules(new Set([curr.modules[0].id]))
       if (curr.modules[0].units[0]) setOpenUnits(new Set([curr.modules[0].units[0].id]))
     }
@@ -39,15 +41,24 @@ export default function CurriculumDetailPage() {
   const allLessonIds = allLessons.map((l) => l.id)
 
   function toggleModule(mid: string) {
-    setOpenModules((prev) => { const n = new Set(prev); n.has(mid) ? n.delete(mid) : n.add(mid); return n })
+    setOpenModules((prev) => { 
+      const n = new Set(prev)
+      n.has(mid) ? n.delete(mid) : n.add(mid)
+      saveOpenTabs(id, { openModules: Array.from(n), openUnits: Array.from(openUnits) })
+      return n
+    })
   }
   function toggleUnit(uid: string) {
-    setOpenUnits((prev) => { const n = new Set(prev); n.has(uid) ? n.delete(uid) : n.add(uid); return n })
+    setOpenUnits((prev) => { 
+      const n = new Set(prev)
+      n.has(uid) ? n.delete(uid) : n.add(uid)
+      saveOpenTabs(id, { openModules: Array.from(openModules), openUnits: Array.from(n) })
+      return n
+    })
   }
 
   return (
-    <AppLayout>
-      <div className="p-8 max-w-3xl">
+    <div className="p-8 max-w-3xl">
         {/* Header */}
         <div className="mb-8">
           <button onClick={() => router.push("/curriculum")} className="text-sm text-neutral-400 hover:text-neutral-600 transition-colors mb-3 flex items-center gap-1">
@@ -145,6 +156,5 @@ export default function CurriculumDetailPage() {
           ))}
         </div>
       </div>
-    </AppLayout>
   )
 }

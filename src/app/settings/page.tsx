@@ -3,7 +3,6 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { loadState, saveState, clearAllData, getStorageSize } from "@/lib/store"
 import { LEVEL_CONFIG, LEVEL_ORDER } from "@/lib/config"
-import AppLayout from "@/components/AppLayout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/toast"
@@ -51,8 +50,7 @@ export default function SettingsPage() {
   if (!state) return null
 
   return (
-    <AppLayout>
-      <div className="p-8 max-w-2xl">
+    <div className="p-8 max-w-2xl">
         <div className="mb-8">
           <div className="text-xs tracking-widest uppercase text-neutral-400 mb-1">Configure</div>
           <h1 className="font-serif text-3xl font-bold">Settings</h1>
@@ -131,6 +129,5 @@ export default function SettingsPage() {
           </CardContent>
         </Card>
       </div>
-    </AppLayout>
   )
 }

@@ -3,7 +3,6 @@ import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { loadState, addCurriculum, removeCurriculum } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
-import AppLayout from "@/components/AppLayout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { useToast } from "@/components/ui/toast"
@@ -90,8 +89,7 @@ export default function ImportPage() {
   if (!state) return null
 
   return (
-    <AppLayout>
-      <div className="p-8 max-w-3xl">
+    <div className="p-8 max-w-3xl">
         <div className="mb-8">
           <div className="flex items-center justify-between">
             <div>
@@ -241,6 +239,5 @@ export default function ImportPage() {
           </pre>
         </div>
       </div>
-    </AppLayout>
   )
 }

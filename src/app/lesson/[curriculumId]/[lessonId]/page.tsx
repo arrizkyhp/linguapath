@@ -1,9 +1,8 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { loadState, completeLesson, getLessonProgress } from "@/lib/store";
+import { loadState, completeLesson, getLessonProgress, setLastLesson } from "@/lib/store";
 import { LESSON_TYPE_CONFIG } from "@/lib/config";
-import AppLayout from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
@@ -212,10 +211,25 @@ export default function LessonPage() {
     const curr = s.curriculums.find((c) => c.id === curriculumId);
     if (!curr) return;
     setCurrTitle(curr.title);
-    const found = curr.modules
-      .flatMap((m) => m.units.flatMap((u) => u.lessons))
-      .find((l) => l.id === lessonId);
-    if (found) setLesson(found);
+    let foundLesson: Lesson | null = null;
+    let foundModuleId: string | null = null;
+    let foundUnitId: string | null = null;
+    for (const m of curr.modules) {
+      for (const u of m.units) {
+        const l = u.lessons.find((lesson) => lesson.id === lessonId);
+        if (l) {
+          foundLesson = l;
+          foundModuleId = m.id;
+          foundUnitId = u.id;
+          break;
+        }
+      }
+      if (foundLesson) break;
+    }
+    if (foundLesson) {
+      setLesson(foundLesson);
+      setLastLesson(curriculumId, foundModuleId!, foundUnitId!, lessonId);
+    }
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
     if (typeof window !== "undefined") {
@@ -327,7 +341,7 @@ export default function LessonPage() {
   // ── Completed Screen ─────────────────────────────────────
   if (done) {
     return (
-      <AppLayout>
+      <>
         <div className="p-8 flex items-center justify-center min-h-[80vh]">
           <div className="text-center max-w-sm">
             <div className="text-6xl mb-4">🎉</div>
@@ -351,7 +365,7 @@ export default function LessonPage() {
             </div>
           </div>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -406,7 +420,7 @@ export default function LessonPage() {
     }
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
           <div className="text-center text-sm text-neutral-400 mb-6">
@@ -484,7 +498,7 @@ export default function LessonPage() {
             )}
           </div>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -497,7 +511,7 @@ export default function LessonPage() {
     if (step === 1) {
       const pct = Math.round((correctCount / content.questions.length) * 100);
       return (
-        <AppLayout>
+        <>
           <Header />
           <div className="p-8 max-w-lg mx-auto text-center">
             <div className="text-6xl mb-4">
@@ -516,12 +530,12 @@ export default function LessonPage() {
               Claim {lesson.xp} XP ✓
             </Button>
           </div>
-        </AppLayout>
+        </>
       );
     }
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
           <div className="flex items-center gap-3 mb-6">
@@ -588,7 +602,7 @@ export default function LessonPage() {
             </Button>
           )}
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -599,7 +613,7 @@ export default function LessonPage() {
     const isLastS = fbIdx === content.sentences.length - 1;
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
           <div className="flex items-center gap-3 mb-8">
@@ -669,7 +683,7 @@ export default function LessonPage() {
             </Button>
           )}
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -708,7 +722,7 @@ export default function LessonPage() {
     const errorCount = grammarErrors.length;
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 mb-6">
@@ -838,7 +852,7 @@ export default function LessonPage() {
             Submit & Complete ✓
           </Button>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -984,7 +998,7 @@ export default function LessonPage() {
     }
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
           {permissionDenied && (
@@ -1225,7 +1239,7 @@ export default function LessonPage() {
             Mark as Complete ✓
           </Button>
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -1235,7 +1249,7 @@ export default function LessonPage() {
     const isReading = step === 0;
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
           {isReading ? (
@@ -1321,7 +1335,7 @@ export default function LessonPage() {
             </>
           )}
         </div>
-      </AppLayout>
+      </>
     );
   }
 
@@ -1381,7 +1395,7 @@ export default function LessonPage() {
     // ── Listening Phase ──
     if (isListeningPhase) {
       return (
-        <AppLayout>
+        <>
           <Header />
           <div className="p-8 max-w-xl mx-auto">
             {/* First-time Kokoro download */}
@@ -1522,7 +1536,7 @@ export default function LessonPage() {
               )}
             </Button>
           </div>
-        </AppLayout>
+        </>
       );
     }
 
@@ -1531,7 +1545,7 @@ export default function LessonPage() {
     const isLastQ = qIdx === content.questions.length - 1;
 
     return (
-      <AppLayout>
+      <>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
           <div className="flex items-center gap-3 mb-6">
@@ -1617,7 +1631,7 @@ export default function LessonPage() {
             </Button>
           )}
         </div>
-      </AppLayout>
+      </>
     );
   }
 

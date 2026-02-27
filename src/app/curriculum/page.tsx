@@ -3,7 +3,6 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { loadState, getCurriculumProgress } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
-import AppLayout from "@/components/AppLayout"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
@@ -18,13 +17,15 @@ export default function CurriculumPage() {
     const s = loadState()
     if (!s.onboarding_complete) { router.push("/onboarding"); return }
     setState(s)
+    const handler = () => setState(loadState())
+    window.addEventListener("linguapath-state-update", handler)
+    return () => window.removeEventListener("linguapath-state-update", handler)
   }, [router])
 
   if (!state) return null
 
   return (
-    <AppLayout>
-      <div className="p-8 max-w-4xl">
+    <div className="p-8 max-w-4xl">
         <div className="flex items-center justify-between mb-8">
           <div>
             <div className="text-xs tracking-widest uppercase text-neutral-400 mb-1">Browse</div>
@@ -92,6 +93,5 @@ export default function CurriculumPage() {
           </div>
         )}
       </div>
-    </AppLayout>
   )
 }

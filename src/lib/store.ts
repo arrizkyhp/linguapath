@@ -2,6 +2,12 @@ import type { AppState, CEFRLevel, Curriculum, CurriculumProgress, LessonProgres
 import { sampleCurriculum } from "./sampleData";
 
 const STORAGE_KEY = "linguapath_state";
+const TABS_KEY = "linguapath_open_tabs";
+
+export interface OpenTabs {
+  openModules: string[];
+  openUnits: string[];
+}
 
 export function getDefaultState(): AppState {
   return {
@@ -51,6 +57,22 @@ export function completeOnboarding(level: CEFRLevel): void {
   updateState({ onboarding_complete: true, current_level: level });
 }
 
+export function setLastLesson(
+  curriculumId: string,
+  moduleId: string,
+  unitId: string,
+  lessonId: string
+): void {
+  updateState({
+    last_lesson: {
+      curriculum_id: curriculumId,
+      module_id: moduleId,
+      unit_id: unitId,
+      lesson_id: lessonId,
+    },
+  });
+}
+
 export function addCurriculum(curriculum: Curriculum): void {
   const state = loadState();
   const exists = state.curriculums.find((c) => c.id === curriculum.id);
@@ -68,6 +90,9 @@ export function removeCurriculum(id: string): void {
   const state = loadState();
   state.curriculums = state.curriculums.filter((c) => c.id !== id);
   state.progress = state.progress.filter((p) => p.curriculum_id !== id);
+  if (state.last_lesson?.curriculum_id === id) {
+    state.last_lesson = null;
+  }
   saveState(state);
 }
 
@@ -137,4 +162,28 @@ export function getStorageSize(): string {
   const bytes = new Blob([raw]).size;
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+export function saveOpenTabs(curriculumId: string, tabs: OpenTabs): void {
+  if (typeof window === "undefined") return;
+  try {
+    const stored = localStorage.getItem(TABS_KEY);
+    const all = stored ? JSON.parse(stored) : {};
+    all[curriculumId] = tabs;
+    localStorage.setItem(TABS_KEY, JSON.stringify(all));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function loadOpenTabs(curriculumId: string): OpenTabs | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = localStorage.getItem(TABS_KEY);
+    if (!stored) return null;
+    const all = JSON.parse(stored);
+    return all[curriculumId] || null;
+  } catch {
+    return null;
+  }
 }

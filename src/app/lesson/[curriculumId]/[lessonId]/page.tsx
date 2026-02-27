@@ -121,6 +121,7 @@ export default function LessonPage() {
   // Whisper state
   const [modelLoading, setModelLoading] = useState(false);
   const [modelProgress, setModelProgress] = useState(0);
+  const [showFirstTimeMessage, setShowFirstTimeMessage] = useState(false);
 
   // Refs for mutable objects
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -139,6 +140,14 @@ export default function LessonPage() {
     if (found) setLesson(found);
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
+
+    // Check if first time using Whisper model
+    if (typeof window !== "undefined") {
+      const hasLoadedBefore = localStorage.getItem("whisper_model_loaded");
+      if (!hasLoadedBefore) {
+        setShowFirstTimeMessage(true);
+      }
+    }
   }, [curriculumId, lessonId]);
 
   useEffect(() => {
@@ -574,6 +583,11 @@ export default function LessonPage() {
               setModelProgress,
               whisperPipelineRef,
             );
+            // Mark as loaded in localStorage (only first time)
+            if (typeof window !== "undefined" && showFirstTimeMessage) {
+              localStorage.setItem("whisper_model_loaded", "true");
+              setShowFirstTimeMessage(false);
+            }
           } catch (e) {
             toast("Failed to load speech model. Please try again.", "error");
             return;
@@ -727,14 +741,14 @@ export default function LessonPage() {
             </div>
           </div>
 
-          {/* Model Loading Indicator */}
-          {modelLoading && (
+          {/* Model Loading Indicator - only show on first visit */}
+          {modelLoading && showFirstTimeMessage && (
             <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6">
               <div className="flex items-center gap-3">
                 <Loader2 className="animate-spin text-purple-600" size={20} />
                 <div className="flex-1">
                   <div className="text-sm font-medium text-purple-800">
-                    Loading speech model...
+                    First time setup - Loading speech model...
                   </div>
                   <div className="text-xs text-purple-600 mt-1">
                     Downloading Whisper model (~75MB). This only happens once.
@@ -751,8 +765,7 @@ export default function LessonPage() {
             </div>
             <ol className="text-xs text-blue-600 space-y-1">
               <li>
-                1. Click <strong>Start Recording</strong> (first time downloads
-                ~75MB model)
+                1. Click <strong>Start Recording</strong>
               </li>
               <li>2. Speak using the keywords shown below</li>
               <li>
@@ -766,7 +779,7 @@ export default function LessonPage() {
               </li>
             </ol>
             <div className="text-xs text-blue-500 mt-2 italic">
-              Powered by Whisper AI - works offline after first download.
+              Powered by Whisper AI - works offline after first setup.
             </div>
           </div>
 

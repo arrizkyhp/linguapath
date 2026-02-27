@@ -24,12 +24,12 @@ import {
   MicOff,
   CheckCircle2,
   AlertTriangle,
-  Play,
   Pause,
   Volume2,
   Loader2,
   Shuffle,
   List,
+  SpellCheck,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
 
@@ -106,6 +106,11 @@ export default function LessonPage() {
 
   // Writing state
   const [writingText, setWritingText] = useState("");
+  const [grammarErrors, setGrammarErrors] = useState<any[]>([]);
+  const [grammarChecking, setGrammarChecking] = useState(false);
+  const [grammarChecked, setGrammarChecked] = useState(false);
+  const [lastCheckedText, setLastCheckedText] = useState("");
+  const [textModified, setTextModified] = useState(false);
 
   // Speech state
   const [recording, setRecording] = useState(false);
@@ -127,7 +132,7 @@ export default function LessonPage() {
   const [modelProgress, setModelProgress] = useState(0);
   const [showFirstTimeMessage, setShowFirstTimeMessage] = useState(false);
 
-  // Refs for mutable objects
+  // Refs
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaRecorderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -145,12 +150,9 @@ export default function LessonPage() {
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
 
-    // Check if first time using Whisper model
     if (typeof window !== "undefined") {
       const hasLoadedBefore = localStorage.getItem("whisper_model_loaded");
-      if (!hasLoadedBefore) {
-        setShowFirstTimeMessage(true);
-      }
+      if (!hasLoadedBefore) setShowFirstTimeMessage(true);
     }
   }, [curriculumId, lessonId]);
 
@@ -264,16 +266,12 @@ export default function LessonPage() {
       }
     }
 
-    function getDisplayIndex(): number {
-      return isShuffled ? cardIndex + 1 : cardIdx + 1;
-    }
-
     return (
       <AppLayout>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
           <div className="text-center text-sm text-neutral-400 mb-6">
-            {getDisplayIndex()} / {content.cards.length}
+            {cardIdx + 1} / {content.cards.length}
           </div>
           <Progress
             value={((cardIdx + 1) / content.cards.length) * 100}
@@ -329,7 +327,7 @@ export default function LessonPage() {
               variant="ghost"
               size="icon"
               onClick={toggleShuffle}
-              title={isShuffled ? "Reset Order - Back to sequential cards" : "Shuffle Cards - Randomize order"}
+              title={isShuffled ? "Reset Order" : "Shuffle Cards"}
               className={isShuffled ? "text-orange-600" : ""}
             >
               {isShuffled ? <List size={16} /> : <Shuffle size={16} />}
@@ -546,10 +544,42 @@ export default function LessonPage() {
     const wordCount = writingText.trim().split(/\s+/).filter(Boolean).length;
     const minWords = content.min_words ?? 0;
 
+    async function checkGrammar() {
+      if (!writingText.trim()) return;
+      setGrammarChecking(true);
+      setGrammarErrors([]);
+      setGrammarChecked(false);
+      setTextModified(false);
+      try {
+        const res = await fetch("https://api.languagetool.org/v2/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            text: writingText,
+            language: "en-US",
+          }),
+        });
+        const data = await res.json();
+        setGrammarErrors(data.matches || []);
+        setGrammarChecked(true);
+        setLastCheckedText(writingText);
+      } catch (err) {
+        toast(
+          "Could not connect to grammar checker. Check your internet.",
+          "error",
+        );
+      } finally {
+        setGrammarChecking(false);
+      }
+    }
+
+    const errorCount = grammarErrors.length;
+
     return (
       <AppLayout>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
+          {/* Prompt */}
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 mb-6">
             <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">
               Writing Prompt
@@ -561,19 +591,126 @@ export default function LessonPage() {
               </div>
             )}
           </div>
+
+          {/* Textarea */}
           <textarea
             value={writingText}
-            onChange={(e) => setWritingText(e.target.value)}
+            onChange={(e) => {
+              setWritingText(e.target.value);
+              if (lastCheckedText) {
+                setTextModified(e.target.value !== lastCheckedText);
+              }
+            }}
             placeholder="Start writing here..."
             className="w-full min-h-56 border border-neutral-200 rounded-xl p-4 text-neutral-700 leading-relaxed resize-y outline-none focus:border-neutral-400 transition-colors font-sans text-sm"
           />
-          <div className="flex items-center justify-between mt-2 mb-6">
+
+          {/* Word count + check button */}
+          <div className="flex items-center justify-between mt-2 mb-4">
             <span
               className={`text-sm ${wordCount >= minWords ? "text-green-600" : "text-neutral-400"}`}
             >
               {wordCount} words {minWords > 0 && `/ ${minWords} min`}
             </span>
+            <button
+              onClick={checkGrammar}
+              disabled={grammarChecking || !writingText.trim()}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                grammarChecking || !writingText.trim()
+                  ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                  : "border-blue-200 text-blue-600 hover:bg-blue-50"
+              }`}
+            >
+              {grammarChecking ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Checking...
+                </>
+              ) : (
+                <>
+                  <SpellCheck size={14} /> Check Grammar
+                </>
+              )}
+            </button>
           </div>
+
+          {/* Modification warning */}
+          {grammarChecked && textModified && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2">
+              <AlertTriangle size={15} className="text-amber-600" />
+              <span className="text-sm text-amber-700 font-medium">
+                Text has been modified since last check - results may be outdated
+              </span>
+            </div>
+          )}
+
+          {/* Grammar errors */}
+          {grammarChecked && errorCount > 0 && (
+            <div className="mb-6 border border-amber-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+                <AlertTriangle size={15} className="text-amber-600" />
+                <span className="text-sm font-medium text-amber-800">
+                  {errorCount} issue{errorCount !== 1 ? "s" : ""} found
+                </span>
+              </div>
+              <div className="divide-y divide-neutral-100 max-h-64 overflow-y-auto">
+                {grammarErrors.map((err: any, i: number) => (
+                  <div key={i} className="px-4 py-3 bg-white">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-mono">
+                        {writingText.substring(
+                          err.offset,
+                          err.offset + err.length,
+                        ) || "—"}
+                      </span>
+                      <span className="text-xs text-neutral-400">
+                        {err.rule?.category?.name || "Grammar"}
+                      </span>
+                    </div>
+                    <p className="text-sm text-neutral-700">{err.message}</p>
+                    {err.replacements?.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1 mt-2">
+                        <span className="text-xs text-neutral-400">
+                          Suggestions:
+                        </span>
+                        {err.replacements
+                          .slice(0, 3)
+                          .map((r: any, j: number) => (
+                            <button
+                              key={j}
+                              onClick={() => {
+                                const before = writingText.substring(
+                                  0,
+                                  err.offset,
+                                );
+                                const after = writingText.substring(
+                                  err.offset + err.length,
+                                );
+                                setWritingText(before + r.value + after);
+                                setTextModified(true);
+                              }}
+                              className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded hover:bg-green-100 transition-colors font-medium"
+                            >
+                              {r.value}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* All clear */}
+          {grammarChecked && errorCount === 0 && (
+            <div className="mb-6 bg-green-50 border border-green-200 rounded-xl px-4 py-3 flex items-center gap-2">
+              <CheckCircle2 size={15} className="text-green-600" />
+              <span className="text-sm text-green-700 font-medium">
+                No grammar or spelling issues found!
+              </span>
+            </div>
+          )}
+
           <Button
             className="w-full"
             disabled={minWords > 0 && wordCount < minWords}
@@ -593,7 +730,6 @@ export default function LessonPage() {
 
     async function toggleRecording() {
       if (recording) {
-        // Stop recording
         setRecording(false);
         setMicStatus("idle");
 
@@ -601,20 +737,17 @@ export default function LessonPage() {
           clearInterval(timerRef.current);
           timerRef.current = null;
         }
-
         if (
           mediaRecorderRef.current &&
           mediaRecorderRef.current.state !== "inactive"
         ) {
           mediaRecorderRef.current.stop();
         }
-
         if (streamRef.current) {
           streamRef.current.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
         }
       } else {
-        // Load Whisper model if not loaded
         if (!whisperPipelineRef.current) {
           setModelLoading(true);
           try {
@@ -623,7 +756,6 @@ export default function LessonPage() {
               setModelProgress,
               whisperPipelineRef,
             );
-            // Mark as loaded in localStorage (only first time)
             if (typeof window !== "undefined" && showFirstTimeMessage) {
               localStorage.setItem("whisper_model_loaded", "true");
               setShowFirstTimeMessage(false);
@@ -648,7 +780,6 @@ export default function LessonPage() {
           setDetectedKeywords([]);
           setAllTranscripts("");
 
-          // Start timer
           timerRef.current = setInterval(
             () =>
               setElapsed((e) => {
@@ -669,15 +800,12 @@ export default function LessonPage() {
             1000,
           );
 
-          // Start MediaRecorder
           let recordedChunks: Blob[] = [];
           const mr = new MediaRecorder(stream, {
             mimeType: "audio/webm;codecs=opus",
           });
           mr.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-              recordedChunks.push(event.data);
-            }
+            if (event.data.size > 0) recordedChunks.push(event.data);
           };
           mr.onstop = async () => {
             if (recordedChunks.length > 0) {
@@ -688,7 +816,6 @@ export default function LessonPage() {
 
               setTranscriptionStatus("processing");
               try {
-                // Pass the blob URL directly — Whisper can handle it
                 const audioUrl = URL.createObjectURL(blob);
                 const result = await whisperPipelineRef.current(audioUrl, {
                   language: "english",
@@ -703,7 +830,7 @@ export default function LessonPage() {
                   transcript.toLowerCase().includes(kw.toLowerCase()),
                 );
                 setDetectedKeywords(found);
-                setTranscriptionStatus("idle");
+                setTranscriptionStatus("done");
               } catch (err) {
                 console.error("Transcription error:", err);
                 setTranscriptionStatus("error");
@@ -781,14 +908,13 @@ export default function LessonPage() {
             </div>
           </div>
 
-          {/* Model Loading Indicator - only show on first visit */}
           {modelLoading && showFirstTimeMessage && (
             <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-6">
               <div className="flex items-center gap-3">
                 <Loader2 className="animate-spin text-purple-600" size={20} />
                 <div className="flex-1">
                   <div className="text-sm font-medium text-purple-800">
-                    First time setup - Loading speech model...
+                    First time setup — Loading speech model...
                   </div>
                   <div className="text-xs text-purple-600 mt-1">
                     Downloading Whisper model (~75MB). This only happens once.
@@ -811,15 +937,13 @@ export default function LessonPage() {
               <li>
                 3. Click <strong>Stop Recording</strong> when done
               </li>
-              <li>
-                4. Wait for transcription to complete (shows keywords detected)
-              </li>
+              <li>4. Wait for transcription to complete</li>
               <li>
                 5. Click <strong>Mark as Complete</strong>
               </li>
             </ol>
             <div className="text-xs text-blue-500 mt-2 italic">
-              Powered by Whisper AI - works offline after first setup.
+              Powered by Whisper AI — works offline after first setup.
             </div>
           </div>
 
@@ -881,17 +1005,12 @@ export default function LessonPage() {
                     )}
                     {transcriptionStatus === "processing" && "Transcribing..."}
                     {transcriptionStatus === "error" && "Error"}
-                    {transcriptionStatus === "idle" && "Ready"}
-                    {transcriptionStatus === "done" && "Done"}
+                    {transcriptionStatus === "idle" && recording && "Recording"}
                   </span>
                 )}
               </div>
               <p
-                className={`text-sm min-h-[24px] ${
-                  allTranscripts
-                    ? "text-neutral-700"
-                    : "text-neutral-400 italic"
-                }`}
+                className={`text-sm min-h-[24px] ${allTranscripts ? "text-neutral-700" : "text-neutral-400 italic"}`}
               >
                 {transcriptionStatus === "processing"
                   ? "Analyzing your speech..."
@@ -953,7 +1072,8 @@ export default function LessonPage() {
             >
               {modelLoading ? (
                 <>
-                  <Loader2 size={18} className="animate-spin" /> Loading Model...
+                  <Loader2 size={18} className="animate-spin" /> Loading
+                  Model...
                 </>
               ) : recording ? (
                 <>
@@ -993,6 +1113,7 @@ export default function LessonPage() {
                   setAudioBlob(null);
                   setDetectedKeywords([]);
                   setAllTranscripts("");
+                  setTranscriptionStatus("idle");
                 }}
                 className="px-4 py-3 rounded-xl border-2 border-neutral-200 text-neutral-500 hover:border-neutral-400 transition-all"
               >

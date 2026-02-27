@@ -27,31 +27,9 @@ import {
   Play,
   Pause,
   Volume2,
-  Brain,
   Loader2,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
-
-function isChromiumBrowser(): boolean {
-  const ua = navigator.userAgent;
-  return (
-    /Chrome|Chromium|Edg|Arc/.test(ua) && !/Firefox|Safari|OPR|Opera/.test(ua)
-  );
-}
-
-function isSpeechRecognitionSupported(): boolean {
-  if (typeof window === "undefined") return false;
-  return "SpeechRecognition" in window || "webkitSpeechRecognition" in window;
-}
-
-function getSpeechRecognition(): any {
-  if (typeof window === "undefined") return null;
-  return (
-    (window as any).SpeechRecognition ||
-    (window as any).webkitSpeechRecognition ||
-    null
-  );
-}
 
 // Load Whisper model for transcription (runs in background)
 async function loadWhisperModel(
@@ -131,15 +109,13 @@ export default function LessonPage() {
   const [detectedKeywords, setDetectedKeywords] = useState<string[]>([]);
   const [allTranscripts, setAllTranscripts] = useState<string>("");
   const [permissionDenied, setPermissionDenied] = useState(false);
-  const [browserNotSupported, setBrowserNotSupported] = useState(false);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [micStatus, setMicStatus] = useState<
     "idle" | "initializing" | "ready" | "recording" | "error"
   >("idle");
-  const [speechStatus, setSpeechStatus] = useState<
-    "idle" | "listening" | "processing" | "error"
+  const [transcriptionStatus, setTranscriptionStatus] = useState<
+    "idle" | "processing" | "done" | "error"
   >("idle");
 
   // Whisper state
@@ -149,11 +125,8 @@ export default function LessonPage() {
   // Refs for mutable objects
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaRecorderRef = useRef<any>(null);
-  const recognitionRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const whisperPipelineRef = useRef<any>(null);
-  // ✅ FIX 1: ref to avoid stale closure in onend
-  const recordingRef = useRef(false);
 
   useEffect(() => {
     const s = loadState();
@@ -166,17 +139,10 @@ export default function LessonPage() {
     if (found) setLesson(found);
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
-
-    if (typeof window !== "undefined" && !isSpeechRecognitionSupported()) {
-      setBrowserNotSupported(true);
-    }
   }, [curriculumId, lessonId]);
 
   useEffect(() => {
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.abort();
-      }
       if (
         mediaRecorderRef.current &&
         mediaRecorderRef.current.state !== "inactive"
@@ -579,7 +545,6 @@ export default function LessonPage() {
     async function toggleRecording() {
       if (recording) {
         // Stop recording
-        recordingRef.current = false;
         setRecording(false);
         setMicStatus("idle");
 
@@ -623,7 +588,6 @@ export default function LessonPage() {
           streamRef.current = stream;
 
           setPermissionDenied(false);
-          recordingRef.current = true;
           setRecording(true);
           setMicStatus("recording");
           setElapsed(0);
@@ -637,7 +601,6 @@ export default function LessonPage() {
                 if (e >= content.duration_seconds) {
                   clearInterval(timerRef.current!);
                   timerRef.current = null;
-                  recordingRef.current = false;
                   setRecording(false);
                   setMicStatus("idle");
                   if (
@@ -669,7 +632,7 @@ export default function LessonPage() {
               });
               setAudioBlob(blob);
 
-              setSpeechStatus("processing");
+              setTranscriptionStatus("processing");
               try {
                 // Pass the blob URL directly — Whisper can handle it
                 const audioUrl = URL.createObjectURL(blob);
@@ -686,10 +649,10 @@ export default function LessonPage() {
                   transcript.toLowerCase().includes(kw.toLowerCase()),
                 );
                 setDetectedKeywords(found);
-                setSpeechStatus("idle");
+                setTranscriptionStatus("idle");
               } catch (err) {
                 console.error("Transcription error:", err);
-                setSpeechStatus("error");
+                setTranscriptionStatus("error");
               }
             }
             if (streamRef.current) {
@@ -702,7 +665,6 @@ export default function LessonPage() {
         } catch (err) {
           console.error("Error accessing microphone:", err);
           setPermissionDenied(true);
-          recordingRef.current = false;
           setRecording(false);
           setMicStatus("error");
           toast(
@@ -735,23 +697,6 @@ export default function LessonPage() {
       <AppLayout>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
-          {/* Browser warning - now less relevant since we use Whisper */}
-          {browserNotSupported && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
-              <AlertTriangle
-                className="text-amber-600 shrink-0 mt-0.5"
-                size={20}
-              />
-              <div>
-                <div className="text-sm font-medium text-amber-800">Note</div>
-                <div className="text-xs text-amber-700 mt-1">
-                  First time recording will download the speech model (~75MB).
-                  After that it works offline!
-                </div>
-              </div>
-            </div>
-          )}
-
           {permissionDenied && (
             <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
               <AlertTriangle
@@ -858,35 +803,33 @@ export default function LessonPage() {
             </div>
           )}
 
-          {(allTranscripts || recording || speechStatus !== "idle") && (
+          {(allTranscripts || recording || transcriptionStatus !== "idle") && (
             <div className="bg-white border border-neutral-200 rounded-xl p-4 mb-6">
               <div className="flex items-center justify-between mb-2">
                 <div className="text-xs uppercase tracking-widest text-neutral-400">
                   {recording
                     ? "Recording..."
-                    : speechStatus === "processing"
+                    : transcriptionStatus === "processing"
                       ? "Transcribing..."
                       : "Transcript"}
                 </div>
-                {(recording || speechStatus === "processing") && (
+                {(recording || transcriptionStatus === "processing") && (
                   <span
                     className={`text-xs px-2 py-1 rounded-full flex items-center gap-1 ${
-                      speechStatus === "listening"
-                        ? "bg-green-100 text-green-700"
-                        : speechStatus === "processing"
-                          ? "bg-purple-100 text-purple-700"
-                          : speechStatus === "error"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-neutral-100 text-neutral-500"
+                      transcriptionStatus === "processing"
+                        ? "bg-purple-100 text-purple-700"
+                        : transcriptionStatus === "error"
+                          ? "bg-red-100 text-red-700"
+                          : "bg-neutral-100 text-neutral-500"
                     }`}
                   >
-                    {speechStatus === "processing" && (
+                    {transcriptionStatus === "processing" && (
                       <Loader2 size={12} className="animate-spin" />
                     )}
-                    {speechStatus === "listening" && "Listening"}
-                    {speechStatus === "processing" && "Transcribing..."}
-                    {speechStatus === "error" && "Error"}
-                    {speechStatus === "idle" && "Ready"}
+                    {transcriptionStatus === "processing" && "Transcribing..."}
+                    {transcriptionStatus === "error" && "Error"}
+                    {transcriptionStatus === "idle" && "Ready"}
+                    {transcriptionStatus === "done" && "Done"}
                   </span>
                 )}
               </div>
@@ -897,7 +840,7 @@ export default function LessonPage() {
                     : "text-neutral-400 italic"
                 }`}
               >
-                {speechStatus === "processing"
+                {transcriptionStatus === "processing"
                   ? "Analyzing your speech..."
                   : allTranscripts ||
                     (recording ? "Speak now..." : "No speech detected")}
@@ -946,13 +889,20 @@ export default function LessonPage() {
           <div className="flex gap-3">
             <button
               onClick={toggleRecording}
+              disabled={modelLoading || transcriptionStatus === "processing"}
               className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-xl border-2 font-semibold transition-all ${
                 recording
                   ? "bg-red-50 border-red-400 text-red-600 hover:bg-red-100"
-                  : "bg-white border-neutral-200 text-neutral-700 hover:border-neutral-400"
+                  : modelLoading || transcriptionStatus === "processing"
+                    ? "bg-neutral-100 border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "bg-white border-neutral-200 text-neutral-700 hover:border-neutral-400"
               }`}
             >
-              {recording ? (
+              {modelLoading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" /> Loading Model...
+                </>
+              ) : recording ? (
                 <>
                   <MicOff size={18} /> Stop Recording
                 </>
@@ -968,7 +918,12 @@ export default function LessonPage() {
             <div className="mt-4 flex gap-3">
               <button
                 onClick={playRecording}
-                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 transition-all"
+                disabled={transcriptionStatus === "processing"}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 transition-all ${
+                  transcriptionStatus === "processing"
+                    ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "border-neutral-200 text-neutral-700 hover:border-neutral-400"
+                }`}
               >
                 {isPlaying ? (
                   <>
@@ -983,7 +938,6 @@ export default function LessonPage() {
               <button
                 onClick={() => {
                   setAudioBlob(null);
-                  setAudioChunks([]);
                   setDetectedKeywords([]);
                   setAllTranscripts("");
                 }}

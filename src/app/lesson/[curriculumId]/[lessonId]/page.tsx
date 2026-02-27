@@ -17,6 +17,17 @@ import type {
   ReadingContent,
   ListeningContent,
 } from "@/types/curriculum";
+import type {
+  WorkerMessage,
+  LoadModelMessage,
+  GenerateAudioMessage,
+  WorkerResponse,
+  ProgressMessage,
+  ModelReadyMessage,
+  AudioReadyMessage,
+  ErrorMessage,
+} from "@/workers/worker";
+
 import {
   ChevronLeft,
   ChevronRight,
@@ -182,15 +193,18 @@ export default function LessonPage() {
   const [audioCurrentTime, setAudioCurrentTime] = useState(0);
   const [playSpeed, setPlaySpeed] = useState<Speed>(1.0);
   const [hasListened, setHasListened] = useState(false);
+  const [workerReady, setWorkerReady] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationMessage, setGenerationMessage] = useState("");
 
   // Refs
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaRecorderRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const whisperPipelineRef = useRef<any>(null);
-  const kokoroPipelineRef = useRef<any>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const audioUrlRef = useRef<string | null>(null);
+  const kokoroWorkerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
     const s = loadState();
@@ -211,51 +225,62 @@ export default function LessonPage() {
     }
   }, [curriculumId, lessonId]);
 
-  // Pre-generate audio as soon as lesson loads
+  // Pre-generate audio as soon as lesson loads (using Web Worker)
   useEffect(() => {
     if (!lesson || lesson.type !== "listening") return;
+
     const content = lesson.content as ListeningContent;
 
-    async function preGenerateAudio() {
-      setAudioGenerating(true);
-      try {
-        await loadKokoroModel(
-          setKokoroLoading,
-          setKokoroProgress,
-          kokoroPipelineRef,
-        );
-        if (typeof window !== "undefined" && showKokoroFirstTimeMessage) {
+    if (typeof window === "undefined") return;
+
+    const worker = new Worker(
+      new URL("@/workers/kokoro.worker.ts", import.meta.url),
+      { type: "module" },
+    );
+    kokoroWorkerRef.current = worker;
+
+    worker.onmessage = (e: MessageEvent<WorkerResponse>) => {
+      const response = e.data;
+
+      if (response.type === "MODEL_READY") {
+        setKokoroLoading(false);
+        if (showKokoroFirstTimeMessage) {
           localStorage.setItem("kokoro_model_loaded", "true");
           setShowKokoroFirstTimeMessage(false);
         }
-        const audio = await kokoroPipelineRef.current.generate(content.text, {
+        worker.postMessage({
+          type: "GENERATE_AUDIO",
+          text: content.text,
           voice: content.voice || "af_heart",
         });
-        const wavBuffer = audio.toWav();
-        const blob = new Blob([wavBuffer], { type: "audio/wav" });
+      } else if (response.type === "PROGRESS") {
+        setKokoroProgress(response.progress);
+        setGenerationProgress(response.progress);
+        setGenerationMessage(response.message || "");
+        if (response.status === "loading") setKokoroLoading(true);
+      } else if (response.type === "AUDIO_READY") {
+        // ✅ wavBytes is already a complete WAV file — just wrap in Blob
+        const blob = new Blob([response.wavBytes.buffer as ArrayBuffer], { type: "audio/wav" });
         const url = URL.createObjectURL(blob);
         audioUrlRef.current = url;
         setListeningAudioUrl(url);
-      } catch (e) {
-        console.error("Audio pre-generation failed:", e);
-        toast("Failed to prepare audio. Please refresh.", "error");
-      } finally {
+        setAudioGenerating(false);
+        setGenerationProgress(100);
+        setGenerationMessage("Audio ready!");
+      } else if (response.type === "ERROR") {
+        console.error("Worker error:", response.error);
+        toast(`Audio error: ${response.error}`, "error");
+        setKokoroLoading(false);
         setAudioGenerating(false);
       }
-    }
-
-    preGenerateAudio();
-
-    return () => {
-      if (audioElRef.current) {
-        audioElRef.current.pause();
-        audioElRef.current = null;
-      }
-      if (audioUrlRef.current) {
-        URL.revokeObjectURL(audioUrlRef.current);
-        audioUrlRef.current = null;
-      }
     };
+
+    setKokoroLoading(true);
+    setAudioGenerating(true);
+    worker.postMessage({
+      type: "LOAD_MODEL",
+      modelId: "onnx-community/Kokoro-82M-v1.0-ONNX",
+    });
   }, [lesson]);
 
   useEffect(() => {
@@ -1349,7 +1374,23 @@ export default function LessonPage() {
                   <Loader2 className="animate-spin text-cyan-600" size={20} />
                   <div className="flex-1">
                     <div className="text-sm font-medium text-cyan-800">
-                      First time setup — Loading TTS model...
+                      {kokoroLoading
+                        ? "Loading TTS model..."
+                        : "Preparing audio..."}
+                    </div>
+                    <div className="text-xs text-cyan-600 mt-1">
+                      Downloading Kokoro model (~80MB). This only happens once.
+                    </div>
+                    <Progress value={kokoroProgress} className="mt-2 h-2" />
+                    {generationMessage && kokoroLoading && (
+                      <div className="text-xs text-cyan-700 mt-1">
+                        {generationMessage}
+                      </div>
+                    )}
+                    <div className="text-sm font-medium text-cyan-800">
+                      {kokoroLoading
+                        ? "Loading TTS model..."
+                        : "Preparing audio..."}
                     </div>
                     <div className="text-xs text-cyan-600 mt-1">
                       Downloading Kokoro model (~80MB). This only happens once.
@@ -1413,7 +1454,7 @@ export default function LessonPage() {
                 </button>
                 <span className="text-xs text-neutral-400">
                   {audioGenerating
-                    ? "Preparing audio..."
+                    ? generationMessage || "Preparing audio..."
                     : audioPlaying
                       ? "Playing..."
                       : hasListened

@@ -1,5 +1,5 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { loadState, completeLesson, getLessonProgress } from "@/lib/store"
 import { LESSON_TYPE_CONFIG } from "@/lib/config"
@@ -8,8 +8,23 @@ import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { useToast } from "@/components/ui/toast"
 import type { Lesson, FlashcardContent, QuizContent, FillBlankContent, WritingContent, SpeechContent, ReadingContent } from "@/types/curriculum"
-import { ChevronLeft, ChevronRight, RotateCcw, Mic, MicOff, CheckCircle2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, RotateCcw, Mic, MicOff, CheckCircle2, AlertTriangle, Play, Pause, Volume2 } from "lucide-react"
 import { dispatchStateUpdate } from "@/components/AppLayout"
+
+function isChromiumBrowser(): boolean {
+  const ua = navigator.userAgent
+  return /Chrome|Chromium|Edg|Arc/.test(ua) && !/Firefox|Safari|OPR|Opera/.test(ua)
+}
+
+function isSpeechRecognitionSupported(): boolean {
+  if (typeof window === "undefined") return false
+  return "SpeechRecognition" in window || "webkitSpeechRecognition" in window
+}
+
+function getSpeechRecognition(): any {
+  if (typeof window === "undefined") return null
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null
+}
 
 export default function LessonPage() {
   const router = useRouter()
@@ -42,7 +57,20 @@ export default function LessonPage() {
   // Speech state
   const [recording, setRecording] = useState(false)
   const [elapsed, setElapsed] = useState(0)
-  const [timerRef, setTimerRef] = useState<NodeJS.Timeout | null>(null)
+  const [detectedKeywords, setDetectedKeywords] = useState<string[]>([])
+  const [allTranscripts, setAllTranscripts] = useState<string>("")
+  const [permissionDenied, setPermissionDenied] = useState(false)
+  const [browserNotSupported, setBrowserNotSupported] = useState(false)
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([])
+  const [micStatus, setMicStatus] = useState<"idle" | "initializing" | "ready" | "recording" | "error">("idle")
+
+  // Use refs for mutable objects that don't need re-renders
+  const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const mediaRecorderRef = useRef<any>(null)
+  const recognitionRef = useRef<any>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   useEffect(() => {
     const s = loadState()
@@ -53,7 +81,28 @@ export default function LessonPage() {
     if (found) setLesson(found)
     const p = getLessonProgress(curriculumId, lessonId)
     if (p?.completed) setAlreadyComplete(true)
+
+    if (typeof window !== "undefined" && !isSpeechRecognitionSupported()) {
+      setBrowserNotSupported(true)
+    }
   }, [curriculumId, lessonId])
+
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort()
+      }
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop()
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop())
+      }
+      if (timerRef.current) {
+        clearInterval(timerRef.current)
+      }
+    }
+  }, [])
 
   function markComplete() {
     if (!lesson) return
@@ -334,19 +383,168 @@ export default function LessonPage() {
   // ── SPEECH ───────────────────────────────────────────────
   if (lesson.type === "speech") {
     const content = lesson.content as SpeechContent
+    const keywords = content.keywords_to_use || []
 
-    function toggleRecording() {
+    async function toggleRecording() {
       if (recording) {
+        // Stop recording
         setRecording(false)
-        if (timerRef) clearInterval(timerRef)
+        setMicStatus("idle")
+        
+        if (timerRef.current) {
+          clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+        
+        if (recognitionRef.current) {
+          recognitionRef.current.stop()
+          recognitionRef.current = null
+        }
+        
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+          mediaRecorderRef.current.stop()
+        }
+        
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach(track => track.stop())
+          streamRef.current = null
+        }
       } else {
-        setRecording(true)
-        setElapsed(0)
-        const t = setInterval(() => setElapsed((e) => {
-          if (e >= content.duration_seconds) { clearInterval(t); setRecording(false); return e }
-          return e + 1
-        }), 1000)
-        setTimerRef(t)
+        const SpeechRecognitionClass = getSpeechRecognition()
+        
+        if (!SpeechRecognitionClass) {
+          toast("Speech recognition not supported in this browser", "error")
+          return
+        }
+
+        try {
+          setMicStatus("initializing")
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          streamRef.current = stream
+          
+          setPermissionDenied(false)
+          setRecording(true)
+          setMicStatus("recording")
+          setElapsed(0)
+          setDetectedKeywords([])
+          setAllTranscripts("")
+          setAudioChunks([])
+
+          // Start timer
+          timerRef.current = setInterval(() => setElapsed((e) => {
+            if (e >= content.duration_seconds) { 
+              clearInterval(timerRef.current!)
+              timerRef.current = null
+              setRecording(false)
+              setMicStatus("idle")
+              if (recognitionRef.current) recognitionRef.current.stop()
+              if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") mediaRecorderRef.current.stop()
+              return e 
+            }
+            return e + 1
+          }), 1000)
+
+          // Start MediaRecorder
+          let recordedChunks: Blob[] = []
+          const mr = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" })
+          mr.ondataavailable = (event) => {
+            if (event.data.size > 0) {
+              recordedChunks.push(event.data)
+            }
+          }
+          mr.onstop = () => {
+            if (recordedChunks.length > 0) {
+              const blob = new Blob(recordedChunks, { type: "audio/webm;codecs=opus" })
+              setAudioBlob(blob)
+            }
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach(track => track.stop())
+            }
+          }
+          mr.start(100)
+          mediaRecorderRef.current = mr
+          setMicStatus("ready")
+
+          // Start Speech Recognition
+          const recognizer = new SpeechRecognitionClass()
+          recognizer.continuous = true
+          recognizer.interimResults = true
+          recognizer.lang = "en-US"
+
+          recognizer.onresult = (event: any) => {
+            let transcript = ""
+            for (let i = 0; i < event.results.length; i++) {
+              transcript += event.results[i][0].transcript + " "
+            }
+            setAllTranscripts(transcript.toLowerCase())
+
+            const found: string[] = []
+            keywords.forEach((kw) => {
+              if (transcript.toLowerCase().includes(kw.toLowerCase())) {
+                found.push(kw)
+              }
+            })
+            setDetectedKeywords(found)
+          }
+
+          recognizer.onerror = (event: any) => {
+            console.log("Speech recognition error:", event.error)
+            if (event.error === "not-allowed") {
+              setPermissionDenied(true)
+              setRecording(false)
+              setMicStatus("error")
+              if (timerRef.current) {
+                clearInterval(timerRef.current)
+                timerRef.current = null
+              }
+            } else if (event.error === "network") {
+              console.log("Network error - speech recognition may not work without internet or Google API access")
+            } else if (event.error === "no-speech") {
+              // Normal - user just hasn't spoken yet
+            } else if (event.error === "aborted") {
+              // User stopped recording, ignore
+            } else {
+              console.warn("Speech recognition error:", event.error)
+            }
+          }
+
+          recognizer.onend = () => {
+            if (recording && mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+              try {
+                recognizer.start()
+              } catch (e) {
+                console.log("Could not restart recognizer")
+              }
+            }
+          }
+
+          recognizer.start()
+          recognitionRef.current = recognizer
+        } catch (err) {
+          console.error("Error accessing microphone:", err)
+          setPermissionDenied(true)
+          setRecording(false)
+          setMicStatus("error")
+          toast("Could not access microphone. Please check permissions.", "error")
+        }
+      }
+    }
+
+    function playRecording() {
+      if (audioBlob) {
+        const audioUrl = URL.createObjectURL(audioBlob)
+        const audio = new Audio(audioUrl)
+        audio.onended = () => {
+          setIsPlaying(false)
+          URL.revokeObjectURL(audioUrl)
+        }
+        audio.onerror = () => {
+          setIsPlaying(false)
+          toast("Could not play audio. Recording may be empty.", "error")
+          URL.revokeObjectURL(audioUrl)
+        }
+        audio.play()
+        setIsPlaying(true)
       }
     }
 
@@ -354,20 +552,68 @@ export default function LessonPage() {
       <AppLayout>
         <Header />
         <div className="p-8 max-w-xl mx-auto">
+          {browserNotSupported && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+              <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+              <div>
+                <div className="text-sm font-medium text-amber-800">Speech Recognition Not Available</div>
+                <div className="text-xs text-amber-700 mt-1">
+                  {!isChromiumBrowser() ? (
+                    <>This feature works best in Chrome, Edge, or other Chromium-based browsers.</>
+                  ) : (
+                    <>Your browser doesn't support speech recognition. Please try Chrome or Edge.</>
+                  )}
+                  <br />
+                  <span className="text-amber-600">Note: Requires internet connection.</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {permissionDenied && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-6 flex items-start gap-3">
+              <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={20} />
+              <div>
+                <div className="text-sm font-medium text-red-800">Microphone Access Denied</div>
+                <div className="text-xs text-red-700 mt-1">
+                  Please allow microphone access in your browser settings and try again.
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 mb-6">
             <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">Speaking Prompt</div>
             <p className="font-serif text-lg text-neutral-700 leading-relaxed">{content.prompt}</p>
             <div className="text-xs text-neutral-400 mt-2">{content.duration_seconds} seconds</div>
           </div>
 
-          {content.keywords_to_use && content.keywords_to_use.length > 0 && (
+          {keywords.length > 0 && (
             <div className="mb-6">
               <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">Keywords to use</div>
               <div className="flex flex-wrap gap-2">
-                {content.keywords_to_use.map((kw) => (
-                  <span key={kw} className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-sm border border-blue-100">{kw}</span>
-                ))}
+                {keywords.map((kw) => {
+                  const isDetected = detectedKeywords.includes(kw)
+                  return (
+                    <span 
+                      key={kw} 
+                      className={`px-3 py-1 rounded-full text-sm border transition-all ${
+                        isDetected 
+                          ? "bg-green-50 text-green-600 border-green-200" 
+                          : "bg-neutral-100 text-neutral-500 border-neutral-200"
+                      }`}
+                    >
+                      {isDetected && <CheckCircle2 size={12} className="inline mr-1" />}
+                      {kw}
+                    </span>
+                  )
+                })}
               </div>
+              {detectedKeywords.length > 0 && (
+                <div className="text-xs text-green-600 mt-2">
+                  ✓ {detectedKeywords.length} of {keywords.length} keywords detected
+                </div>
+              )}
             </div>
           )}
 
@@ -377,6 +623,25 @@ export default function LessonPage() {
               {String(Math.floor(elapsed / 60)).padStart(2, "0")}:{String(elapsed % 60).padStart(2, "0")}
             </div>
             <Progress value={(elapsed / content.duration_seconds) * 100} className="mb-4 h-2" />
+          </div>
+
+          {/* Microphone Status Indicator */}
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className={`w-3 h-3 rounded-full ${
+              micStatus === "recording" ? "bg-red-500 animate-pulse" :
+              micStatus === "ready" ? "bg-green-500" :
+              micStatus === "initializing" ? "bg-yellow-500 animate-pulse" :
+              micStatus === "error" ? "bg-red-500" :
+              "bg-neutral-300"
+            }`} />
+            <span className="text-sm text-neutral-500">
+              {micStatus === "recording" && "Recording..."}
+              {micStatus === "ready" && "Mic active"}
+              {micStatus === "initializing" && "Initializing mic..."}
+              {micStatus === "error" && "Mic error"}
+              {micStatus === "idle" && audioBlob && !recording && "Recording saved"}
+              {micStatus === "idle" && !audioBlob && !recording && "Mic idle"}
+            </span>
           </div>
 
           <div className="flex gap-3">
@@ -391,6 +656,24 @@ export default function LessonPage() {
               {recording ? <><MicOff size={18} /> Stop Recording</> : <><Mic size={18} /> Start Recording</>}
             </button>
           </div>
+
+          {audioBlob && !recording && (
+            <div className="mt-4 flex gap-3">
+              <button
+                onClick={playRecording}
+                className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-neutral-200 text-neutral-700 hover:border-neutral-400 transition-all"
+              >
+                {isPlaying ? <><Pause size={18} /> Pause</> : <><Volume2 size={18} /> Play Recording</>}
+              </button>
+              <button
+                onClick={() => { setAudioBlob(null); setAudioChunks([]); setDetectedKeywords([]); setAllTranscripts("") }}
+                className="px-4 py-3 rounded-xl border-2 border-neutral-200 text-neutral-500 hover:border-neutral-400 transition-all"
+              >
+                <RotateCcw size={18} />
+              </button>
+            </div>
+          )}
+
           <Button className="w-full mt-3" onClick={markComplete}>
             Mark as Complete ✓
           </Button>

@@ -28,6 +28,8 @@ import {
   Pause,
   Volume2,
   Loader2,
+  Shuffle,
+  List,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
 
@@ -88,6 +90,8 @@ export default function LessonPage() {
   // Flashcard state
   const [cardIdx, setCardIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [isShuffled, setIsShuffled] = useState(false);
+  const [shuffledCardOrder, setShuffledCardOrder] = useState<number[]>([]);
 
   // Quiz / Reading state
   const [qIdx, setQIdx] = useState(0);
@@ -239,15 +243,37 @@ export default function LessonPage() {
   // ── FLASHCARD ────────────────────────────────────────────
   if (lesson.type === "flashcard") {
     const content = lesson.content as FlashcardContent;
-    const card = content.cards[cardIdx];
+    const cardIndex = isShuffled ? shuffledCardOrder[cardIdx] : cardIdx;
+    const card = content.cards[cardIndex];
     const isLast = cardIdx === content.cards.length - 1;
+
+    function toggleShuffle() {
+      if (isShuffled) {
+        setIsShuffled(false);
+        setShuffledCardOrder([]);
+      } else {
+        const order = Array.from({ length: content.cards.length }, (_, i) => i);
+        for (let i = order.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [order[i], order[j]] = [order[j], order[i]];
+        }
+        setIsShuffled(true);
+        setShuffledCardOrder(order);
+        setCardIdx(0);
+        setFlipped(false);
+      }
+    }
+
+    function getDisplayIndex(): number {
+      return isShuffled ? cardIndex + 1 : cardIdx + 1;
+    }
 
     return (
       <AppLayout>
         <Header />
         <div className="p-8 max-w-2xl mx-auto">
           <div className="text-center text-sm text-neutral-400 mb-6">
-            {cardIdx + 1} / {content.cards.length}
+            {getDisplayIndex()} / {content.cards.length}
           </div>
           <Progress
             value={((cardIdx + 1) / content.cards.length) * 100}
@@ -279,7 +305,7 @@ export default function LessonPage() {
             )}
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 items-center justify-center">
             <Button
               variant="outline"
               className="flex-1"
@@ -291,8 +317,22 @@ export default function LessonPage() {
             >
               <ChevronLeft size={16} /> Previous
             </Button>
-            <Button variant="ghost" onClick={() => setFlipped(false)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setFlipped(false)}
+              title="Flip to Front"
+            >
               <RotateCcw size={16} />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleShuffle}
+              title={isShuffled ? "Reset Order - Back to sequential cards" : "Shuffle Cards - Randomize order"}
+              className={isShuffled ? "text-orange-600" : ""}
+            >
+              {isShuffled ? <List size={16} /> : <Shuffle size={16} />}
             </Button>
             {isLast ? (
               <Button className="flex-1" onClick={markComplete}>

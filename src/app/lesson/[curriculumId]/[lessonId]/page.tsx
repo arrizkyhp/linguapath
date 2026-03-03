@@ -43,6 +43,7 @@ import {
   SpellCheck,
   Play,
   Gauge,
+  Sparkles,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
 
@@ -156,6 +157,7 @@ export default function LessonPage() {
   const [grammarChecked, setGrammarChecked] = useState(false);
   const [lastCheckedText, setLastCheckedText] = useState("");
   const [textModified, setTextModified] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
 
   // Speech state
   const [recording, setRecording] = useState(false);
@@ -719,6 +721,37 @@ export default function LessonPage() {
       }
     }
 
+    function copyPromptForAI() {
+      if (!writingText.trim()) return;
+      
+      const state = loadState();
+      const prompt = `You are an English learning assistant for Linguapath. Please analyze this student's writing:
+
+**Student's CEFR Level**: ${state.current_level}
+**Writing Task**: ${content.prompt}
+**Minimum Words**: ${content.min_words || "not specified"}
+
+**Student's Answer**:
+${writingText}
+
+Please provide:
+1. **Naturalness Score** (1-5 stars)
+2. **Overall Feedback** - Encouraging summary with 2-3 key improvement areas
+3. **Specific Errors** - List mistakes with:
+   - Original text snippet
+   - Suggested correction  
+   - Brief explanation of what's wrong
+4. **Improved Version** - A rewritten version that maintains the original meaning but sounds more natural
+
+Be encouraging and educational. Focus on clarity and naturalness for language learners at this level.`;
+
+      navigator.clipboard.writeText(prompt);
+      setPromptCopied(true);
+      toast("Prompt copied! Paste into Gemini, Claude, or ChatGPT", "success");
+      
+      setTimeout(() => setPromptCopied(false), 30000);
+    }
+
     const errorCount = grammarErrors.length;
 
     return (
@@ -746,32 +779,96 @@ export default function LessonPage() {
             placeholder="Start writing here..."
             className="w-full min-h-56 border border-neutral-200 rounded-xl p-4 text-neutral-700 leading-relaxed resize-y outline-none focus:border-neutral-400 transition-colors font-sans text-sm"
           />
-          <div className="flex items-center justify-between mt-2 mb-4">
+          <div className="flex items-center justify-between mt-2 mb-4 gap-3">
             <span
               className={`text-sm ${wordCount >= minWords ? "text-green-600" : "text-neutral-400"}`}
             >
               {wordCount} words {minWords > 0 && `/ ${minWords} min`}
             </span>
-            <button
-              onClick={checkGrammar}
-              disabled={grammarChecking || !writingText.trim()}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                grammarChecking || !writingText.trim()
-                  ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                  : "border-blue-200 text-blue-600 hover:bg-blue-50"
-              }`}
-            >
-              {grammarChecking ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Checking...
-                </>
-              ) : (
-                <>
-                  <SpellCheck size={14} /> Check Grammar
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={checkGrammar}
+                disabled={grammarChecking || !writingText.trim()}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  grammarChecking || !writingText.trim()
+                    ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "border-blue-200 text-blue-600 hover:bg-blue-50"
+                }`}
+              >
+                {grammarChecking ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Checking...
+                  </>
+                ) : (
+                  <>
+                    <SpellCheck size={14} /> Check Grammar
+                  </>
+                )}
+              </button>
+              <button
+                onClick={copyPromptForAI}
+                disabled={!writingText.trim()}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  !writingText.trim()
+                    ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "border-purple-200 text-purple-600 hover:bg-purple-50"
+                }`}
+              >
+                <Sparkles size={14} /> Get AI Feedback
+              </button>
+            </div>
           </div>
+          {promptCopied && (
+            <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+              <div className="flex items-center gap-2 mb-2">
+                <CheckCircle2 size={15} className="text-purple-600" />
+                <span className="text-sm font-medium text-purple-800">
+                  Prompt copied to clipboard!
+                </span>
+              </div>
+              <p className="text-xs text-purple-700 mb-3">
+                Paste it into your favorite AI chat, then come back and continue when done.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="https://gemini.google.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                >
+                  <Play size={12} className="rotate-[-90deg]" />
+                  Open Gemini
+                </a>
+                <a
+                  href="https://claude.ai/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                >
+                  <Play size={12} className="rotate-[-90deg]" />
+                  Open Claude
+                </a>
+                <a
+                  href="https://chatgpt.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                >
+                  <Play size={12} className="rotate-[-90deg]" />
+                  Open ChatGPT
+                </a>
+                <a
+                  href="https://chat.qwen.ai"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                >
+                  <Play size={12} className="rotate-[-90deg]" />
+                  Open Qwen
+                </a>
+              </div>
+            </div>
+          )}
           {grammarChecked && textModified && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2">
               <AlertTriangle size={15} className="text-amber-600" />

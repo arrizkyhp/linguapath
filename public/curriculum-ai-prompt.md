@@ -92,6 +92,7 @@ Generate a comprehensive curriculum that takes a learner from beginner to master
       {
         "id": "m1",
         "title": "Module Title",
+        "description": "Brief description of what learners will master in this module (learning objectives & big picture)",
         "units": [
           {
             "id": "u1",
@@ -291,6 +292,7 @@ This is what a properly structured listening lesson should look like:
 6. **Valid voice options**: `af_heart`, `af_sarah`, `am_michael`, `bf_emma`, `bm_george`
 7. **MUST have 4-6 lessons per unit** - Do NOT generate only 2 lessons!
 8. **Total lessons must be 100+** - This is for personal use, you want extensive practice!
+9. **Module descriptions** - Each module MUST include a `description` field that explains the "big picture" of what learners will master. This helps set expectations and provides context. Example: `"description": "Master daily routines, time expressions, and present tense to talk about your everyday life and habits."`
 
 ---
 

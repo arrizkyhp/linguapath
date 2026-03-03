@@ -158,6 +158,22 @@ export default function LessonPage() {
   const [lastCheckedText, setLastCheckedText] = useState("");
   const [textModified, setTextModified] = useState(false);
   const [promptCopied, setPromptCopied] = useState(false);
+  const [showPasteArea, setShowPasteArea] = useState(false);
+  const [pastedFeedback, setPastedFeedback] = useState("");
+  const [selectedAISource, setSelectedAISource] = useState("auto");
+  const [parsedFeedback, setParsedFeedback] = useState<{
+    naturalnessScore: number;
+    overallFeedback: string;
+    errors: Array<{
+      text: string;
+      suggestion: string;
+      explanation: string;
+    }>;
+    improvedVersion: string;
+    detectedFormat?: string;
+  } | null>(null);
+  const [parseError, setParseError] = useState("");
+  const [showRawFeedback, setShowRawFeedback] = useState(false);
 
   // Speech state
   const [recording, setRecording] = useState(false);
@@ -748,8 +764,269 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
       navigator.clipboard.writeText(prompt);
       setPromptCopied(true);
       toast("Prompt copied! Paste into Gemini, Claude, or ChatGPT", "success");
+    }
+
+    function parseFeedback() {
+      const text = pastedFeedback.trim();
       
-      setTimeout(() => setPromptCopied(false), 30000);
+      if (!text) {
+        setParseError("Please paste some feedback first");
+        return;
+      }
+
+      let detectedFormat = "";
+      let formatScore = 0;
+
+      // Extract naturalness score (multiple patterns)
+      let score = 0;
+      const scorePatterns = [
+        /Naturalness Score[:\s⭐]*([1-5])/i,
+        /Score[:\s]*([1-5])[:\s]/i,
+        /([1-5])[:\s⭐]*\/5/i,
+        /Naturalness Score:\s*\*\*([1-5])\s*\/\s*5/i,
+      ];
+      
+      for (const pattern of scorePatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          score = parseInt(match[1]);
+          break;
+        }
+      }
+
+      // Extract overall feedback
+      let overall = "";
+      const overallPatterns = [
+        /Overall Feedback[:\s]*([\s\S]*?)(?:Specific Errors|❌ Errors|📝 Specific Errors|🔍 Specific Errors|$)/i,
+        /💬 Overall Feedback[:\s]*([\s\S]*?)(?:🔍|##\s*\[|$)/i,
+        /🌼\s*\*\*Overall Feedback\*\*[:\s]*([\s\S]*?)(?:🔎|##\s*\[|$)/i,
+      ];
+      
+      for (const pattern of overallPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          overall = match[1].trim().replace(/\n+/g, ' ').replace(/\*\*/g, '');
+          break;
+        }
+      }
+
+      // Extract improved version (look for various patterns)
+      let improved = "";
+      const improvedPatterns = [
+        /Improved Version[:\s]*([\s\S]*?)$/i,
+        /✅ Improved Version[:\s]*([\s\S]*?)$/i,
+        /✨ Improved Version[:\s]*([\s\S]*?)$/i,
+        /Rewritten Version[:\s]*([\s\S]*?)$/i,
+        /Better Version[:\s]*([\s\S]*?)$/i,
+        /##\s*\d+\.?\s*✨?\s*\*\*?Improved Version\*\*?[:\s]*([\s\S]*?)(?:##|$)/i,
+      ];
+      
+      for (const pattern of improvedPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          improved = match[1].trim().replace(/^>\s*/gm, '').replace(/^-+\s*/gm, '');
+          break;
+        }
+      }
+
+      // Extract errors using multiple patterns - COMBINE ALL MATCHES
+      const errors: Array<{ text: string; suggestion: string; explanation: string }> = [];
+      
+      // If user selected Claude, try table pattern FIRST
+      if (selectedAISource === "claude") {
+        // Pattern: Markdown table format (Claude style) - FIXED to handle asterisks
+        // | # | *"original"* | *"suggestion"* | explanation |
+        const tablePattern = /\|\s*\d+\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*([^|\n]+)\|/g;
+        let match;
+        while ((match = tablePattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const explanation = match[3].trim();
+          
+          if (text_content && suggestion && !errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "Claude (table format)";
+          }
+        }
+        
+        if (errors.length === 0) {
+          setParseError("Claude table format not detected. Make sure to copy the entire table including the header row and all columns. The table should look like: | # | Original | Correction | Explanation |");
+          return;
+        }
+      }
+      
+      // If user selected ChatGPT, try label patterns FIRST
+      if (selectedAISource === "chatgpt") {
+        // Pattern: Numbered labels (ChatGPT style)
+        const numberedLabelPattern = /\*\*\d+\.\s*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        let match;
+        while ((match = numberedLabelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim();
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "ChatGPT (numbered labels)";
+          }
+        }
+        
+        // Pattern: Label-based (ChatGPT style)
+        const labelPattern = /\*\*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = labelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim().replace(/^["']|["']$/g, '');
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "ChatGPT (structured labels)";
+          }
+        }
+        
+        if (errors.length === 0) {
+          setParseError("ChatGPT format not detected. Make sure the response includes **Original:**, **Correction:**, and **Explanation:** sections.");
+          return;
+        }
+      }
+      
+      // For auto-detect or if no errors yet, try all patterns
+      if (selectedAISource === "auto" || errors.length === 0) {
+        // Pattern 1: "text" → "suggestion" - explanation (arrow format)
+        const errorPattern1 = /["'](.*?)["']\s*→\s*["'](.*?)["']\s*(?:-?\s*(.*?))(?=["']|$)/g;
+        let match;
+        while ((match = errorPattern1.exec(text)) !== null) {
+          errors.push({
+            text: match[1].trim(),
+            suggestion: match[2].trim(),
+            explanation: match[3]?.trim().replace(/^-\s*/, '') || ""
+          });
+          formatScore += 10;
+        }
+
+        // Pattern 2: Markdown table format (Claude style) - FIXED to handle asterisks
+        const tablePattern = /\|\s*\d+\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*([^|\n]+)\|/g;
+        while ((match = tablePattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const explanation = match[3].trim();
+          
+          if (text_content && suggestion && !errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "Claude (table format)";
+          }
+        }
+
+        // Pattern 3: **text** -> **suggestion** (bold arrow format)
+        const errorPattern2 = /\*\*(.*?)\*\*\s*->\s*\*\*(.*?)\*\*/g;
+        while ((match = errorPattern2.exec(text)) !== null) {
+          errors.push({
+            text: match[1],
+            suggestion: match[2],
+            explanation: ""
+          });
+        }
+
+        // Pattern 4: "text" should be "suggestion"
+        const errorPattern3 = /["'](.*?)["']\s+should be\s+["'](.*?)["']/gi;
+        while ((match = errorPattern3.exec(text)) !== null) {
+          errors.push({
+            text: match[1],
+            suggestion: match[2],
+            explanation: ""
+          });
+        }
+
+        // Pattern 5: Label-based format (ChatGPT style)
+        const labelPattern = /\*\*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = labelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim().replace(/^["']|["']$/g, '');
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "ChatGPT (structured labels)";
+          }
+        }
+
+        // Pattern 6: Numbered list with Original/Correction/Explanation
+        const numberedLabelPattern = /\*\*\d+\.\s*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = numberedLabelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim();
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "ChatGPT (numbered labels)";
+          }
+        }
+      }
+
+      // Determine format based on patterns found
+      if (!detectedFormat && errors.length > 0) {
+        detectedFormat = "Standard (arrow format)";
+      }
+
+      // If we couldn't extract key information, show error but offer raw view
+      if (errors.length === 0 && !improved && !overall) {
+        setParseError("Couldn't parse the feedback automatically. But you can still view the raw AI response below!");
+        setParsedFeedback({
+          naturalnessScore: score,
+          overallFeedback: "",
+          errors: [],
+          improvedVersion: "",
+          detectedFormat: "Unknown"
+        });
+        setShowRawFeedback(true);
+        return;
+      }
+
+      // Set parsed feedback
+      setParsedFeedback({
+        naturalnessScore: score,
+        overallFeedback: overall,
+        errors: errors,
+        improvedVersion: improved,
+        detectedFormat: detectedFormat || "Mixed format"
+      });
+      
+      setParseError("");
+      setShowRawFeedback(false);
+      setShowPasteArea(false);
+      setPastedFeedback("");
+      toast(`Feedback parsed successfully! (${detectedFormat || "Standard"})`, "success");
     }
 
     const errorCount = grammarErrors.length;
@@ -820,53 +1097,123 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
           </div>
           {promptCopied && (
             <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
-              <div className="flex items-center gap-2 mb-2">
-                <CheckCircle2 size={15} className="text-purple-600" />
-                <span className="text-sm font-medium text-purple-800">
-                  Prompt copied to clipboard!
-                </span>
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 size={15} className="text-purple-600" />
+                    <span className="text-sm font-medium text-purple-800">
+                      Prompt copied to clipboard!
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-700 mb-3">
+                    Paste it into your favorite AI chat, then come back and continue when done.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <a
+                      href="https://gemini.google.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Gemini
+                    </a>
+                    <a
+                      href="https://claude.ai/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Claude
+                    </a>
+                    <a
+                      href="https://chatgpt.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open ChatGPT
+                    </a>
+                    <a
+                      href="https://chat.qwen.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Qwen
+                    </a>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPromptCopied(false)}
+                  className="text-purple-400 hover:text-purple-600 p-1"
+                  title="Close"
+                >
+                  ✕
+                </button>
               </div>
-              <p className="text-xs text-purple-700 mb-3">
-                Paste it into your favorite AI chat, then come back and continue when done.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <a
-                  href="https://gemini.google.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+              
+              {!showPasteArea ? (
+                <button
+                  onClick={() => setShowPasteArea(true)}
+                  className="text-xs text-purple-700 hover:text-purple-900 hover:underline font-medium flex items-center gap-1"
                 >
-                  <Play size={12} className="rotate-[-90deg]" />
-                  Open Gemini
-                </a>
-                <a
-                  href="https://claude.ai/new"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-                >
-                  <Play size={12} className="rotate-[-90deg]" />
-                  Open Claude
-                </a>
-                <a
-                  href="https://chatgpt.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-                >
-                  <Play size={12} className="rotate-[-90deg]" />
-                  Open ChatGPT
-                </a>
-                <a
-                  href="https://chat.qwen.ai"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
-                >
-                  <Play size={12} className="rotate-[-90deg]" />
-                  Open Qwen
-                </a>
-              </div>
+                  📋 Paste AI Feedback Here
+                </button>
+              ) : (
+                <div className="mt-3 pt-3 border-t border-purple-200">
+                  <div className="mb-2">
+                    <label className="text-xs font-medium text-purple-700 block mb-1">
+                      Which AI provided this feedback?
+                    </label>
+                    <select
+                      value={selectedAISource}
+                      onChange={(e) => setSelectedAISource(e.target.value)}
+                      className="text-sm border border-purple-200 rounded-lg px-3 py-1.5 bg-white text-purple-700 focus:outline-none focus:border-purple-400"
+                    >
+                      <option value="auto">Auto-detect (recommended)</option>
+                      <option value="claude">Claude (uses tables)</option>
+                      <option value="chatgpt">ChatGPT (uses labels)</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="qwen">Qwen</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <textarea
+                    value={pastedFeedback}
+                    onChange={(e) => setPastedFeedback(e.target.value)}
+                    placeholder="Paste the AI's response here... (includes score, errors, and improved version)"
+                    className="w-full h-32 p-2 text-sm rounded-lg border border-purple-200 bg-white focus:outline-none focus:border-purple-400"
+                  />
+                  {parseError && (
+                    <div className="mt-2 text-xs text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} />
+                      {parseError}
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={parseFeedback}
+                      className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      Parse Feedback
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowPasteArea(false);
+                        setPastedFeedback("");
+                        setParseError("");
+                      }}
+                      className="px-3 py-1.5 bg-white text-purple-700 text-xs font-medium rounded-lg border border-purple-200 hover:bg-purple-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
           {grammarChecked && textModified && (
@@ -939,6 +1286,154 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
               <span className="text-sm text-green-700 font-medium">
                 No grammar or spelling issues found!
               </span>
+            </div>
+          )}
+          {parsedFeedback && (
+            <div className="mb-6 border border-purple-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-3 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={15} className="text-purple-600" />
+                  <div>
+                    <span className="text-sm font-medium text-purple-800">
+                      AI Feedback (Parsed)
+                    </span>
+                    {parsedFeedback.detectedFormat && (
+                      <div className="text-xs text-purple-600 mt-0.5">
+                        Format: {parsedFeedback.detectedFormat}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {pastedFeedback && (
+                    <button
+                      onClick={() => setShowRawFeedback(!showRawFeedback)}
+                      className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                    >
+                      {showRawFeedback ? "Hide Raw" : "View Raw"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setParsedFeedback(null)}
+                    className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              
+              {showRawFeedback && pastedFeedback && (
+                <div className="p-4 bg-neutral-50 border-b border-purple-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-neutral-600">Original AI Response</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(pastedFeedback);
+                        toast("Raw feedback copied!", "success");
+                      }}
+                      className="text-xs text-purple-600 hover:underline"
+                    >
+                      Copy Raw
+                    </button>
+                  </div>
+                  <div className="bg-white border border-neutral-200 rounded-lg p-3 max-h-96 overflow-y-auto">
+                    <pre className="text-xs text-neutral-700 whitespace-pre-wrap font-sans">
+                      {pastedFeedback}
+                    </pre>
+                  </div>
+                </div>
+              )}
+              
+              <div className="p-4 bg-white space-y-4">
+                {parsedFeedback.naturalnessScore > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-neutral-700">Naturalness Score</span>
+                      <span className="text-lg font-bold text-purple-600">
+                        {parsedFeedback.naturalnessScore}/5
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <div
+                          key={star}
+                          className={`w-8 h-2 rounded-full ${
+                            star <= parsedFeedback.naturalnessScore
+                              ? "bg-purple-500"
+                              : "bg-neutral-200"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {parsedFeedback.overallFeedback && (
+                  <div className="p-3 bg-neutral-50 rounded-lg">
+                    <p className="text-sm text-neutral-700">{parsedFeedback.overallFeedback}</p>
+                  </div>
+                )}
+                
+                {parsedFeedback.errors.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-neutral-700 mb-2">
+                      Suggestions ({parsedFeedback.errors.length})
+                    </h4>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {parsedFeedback.errors.map((err, i) => (
+                        <div key={i} className="p-3 border border-neutral-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-mono">
+                              {err.text || "General"}
+                            </span>
+                          </div>
+                          {err.explanation && (
+                            <p className="text-sm text-neutral-700 mb-1">{err.explanation}</p>
+                          )}
+                          {err.suggestion && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-neutral-500">→</span>
+                              <button
+                                onClick={() => {
+                                  if (err.text) {
+                                    setWritingText(writingText.replace(err.text, err.suggestion));
+                                    setTextModified(true);
+                                  }
+                                }}
+                                className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded hover:bg-green-100 transition-colors font-medium"
+                              >
+                                {err.suggestion}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {parsedFeedback.improvedVersion && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-neutral-700">Improved Version</h4>
+                      <button
+                        onClick={() => {
+                          setWritingText(parsedFeedback.improvedVersion);
+                          setTextModified(true);
+                        }}
+                        className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1 rounded hover:bg-purple-100 transition-colors font-medium"
+                      >
+                        Use This Version
+                      </button>
+                    </div>
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-neutral-700 leading-relaxed">
+                        {parsedFeedback.improvedVersion}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
           <Button

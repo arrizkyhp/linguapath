@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
+import confetti from "canvas-confetti";
 import { loadState, completeLesson, getLessonProgress, setLastLesson } from "@/lib/store";
 import { LESSON_TYPE_CONFIG } from "@/lib/config";
 import { Button } from "@/components/ui/button";
@@ -345,6 +346,17 @@ export default function LessonPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (done) {
+      confetti({
+        particleCount: 200,
+        spread: 120,
+        origin: { y: 0.6 },
+        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+      });
+    }
+  }, [done]);
+
   function markComplete() {
     if (!lesson) return;
     completeLesson(curriculumId, lessonId, lesson.xp);
@@ -358,11 +370,22 @@ export default function LessonPage() {
 
   // ── Completed Screen ─────────────────────────────────────
   if (done) {
+    const replayConfetti = () => {
+      confetti({
+        particleCount: 200,
+        spread: 120,
+        origin: { y: 0.6 },
+        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+      });
+    };
+
     return (
       <>
         <div className="p-8 flex items-center justify-center min-h-[80vh]">
           <div className="text-center max-w-sm">
-            <div className="text-6xl mb-4">🎉</div>
+            <div className="text-6xl mb-4 relative">
+              <span className="relative z-10">🎉</span>
+            </div>
             <h2 className="font-serif text-3xl font-bold mb-2">
               Lesson Complete!
             </h2>
@@ -370,6 +393,13 @@ export default function LessonPage() {
             <div className="text-4xl font-bold text-yellow-500 mb-8">
               +{lesson.xp} XP
             </div>
+            <button
+              onClick={replayConfetti}
+              className="text-2xl mb-4 hover:scale-125 transition-transform inline-block"
+              title="Play confetti again"
+            >
+              🎆
+            </button>
             <div className="flex gap-3 justify-center">
               <Button
                 variant="outline"

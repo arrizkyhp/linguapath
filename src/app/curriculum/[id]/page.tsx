@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
-import { loadState, getLessonProgress, isLessonUnlocked, saveOpenTabs, loadOpenTabs } from "@/lib/store"
+import { loadState, getLessonProgress, isLessonUnlocked, saveOpenTabs, loadOpenTabs, isUnitCompleted, isModuleCompleted } from "@/lib/store"
 import { LEVEL_CONFIG, LESSON_TYPE_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -78,19 +78,38 @@ export default function CurriculumDetailPage() {
 
         {/* Modules */}
         <div className="space-y-3">
-          {curriculum.modules.map((mod, mi) => (
+          {curriculum.modules.map((mod, mi) => {
+            const moduleCompleted = isModuleCompleted(mod, state.progress)
+            const moduleProgress = mod.units.flatMap(u => u.lessons).length
+            const completedLessons = mod.units.flatMap(u => u.lessons).filter(l => {
+              const cp = state.progress.find(p => p.curriculum_id === curriculum.id)
+              return cp?.lessons[l.id]?.completed
+            }).length
+
+            return (
             <div key={mod.id}>
               {/* Module Header */}
               <button
                 onClick={() => toggleModule(mod.id)}
                 className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border border-neutral-200 hover:border-neutral-300 transition-colors text-left"
               >
-                <div className="w-8 h-8 rounded-lg bg-neutral-100 flex items-center justify-center text-sm font-bold text-neutral-600 flex-shrink-0">
-                  {mi + 1}
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                  moduleCompleted ? "bg-green-100 text-green-700" : "bg-neutral-100 text-neutral-600"
+                }`}>
+                  {moduleCompleted ? <CheckCircle2 size={18} /> : mi + 1}
                 </div>
                 <div className="flex-1">
-                  <div className="font-semibold">{mod.title}</div>
-                  <div className="text-xs text-neutral-400">{mod.units.length} units · {mod.units.reduce((a, u) => a + u.lessons.length, 0)} lessons</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold">{mod.title}</span>
+                    {moduleCompleted && (
+                      <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                        Completed
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-xs text-neutral-400">
+                    {mod.units.length} units · {completedLessons}/{moduleProgress} lessons
+                  </div>
                 </div>
                 {openModules.has(mod.id) ? <ChevronDown size={18} className="text-neutral-400" /> : <ChevronRight size={18} className="text-neutral-400" />}
               </button>
@@ -98,7 +117,10 @@ export default function CurriculumDetailPage() {
               {/* Units */}
               {openModules.has(mod.id) && (
                 <div className="ml-4 mt-2 space-y-2">
-                  {mod.units.map((unit) => (
+                  {mod.units.map((unit) => {
+                    const unitCompleted = isUnitCompleted(unit, state.progress)
+                    
+                    return (
                     <div key={unit.id}>
                       {/* Unit Header */}
                       <button
@@ -106,7 +128,14 @@ export default function CurriculumDetailPage() {
                         className="w-full flex items-center gap-3 p-3 bg-neutral-50 rounded-lg border border-neutral-100 hover:bg-white transition-colors text-left"
                       >
                         <div className="flex-1">
-                          <div className="font-medium text-sm">{unit.title}</div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-sm">{unit.title}</span>
+                            {unitCompleted && (
+                              <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                                Completed
+                              </Badge>
+                            )}
+                          </div>
                           <div className="text-xs text-neutral-400">{unit.lessons.length} lessons</div>
                         </div>
                         {openUnits.has(unit.id) ? <ChevronDown size={15} className="text-neutral-300" /> : <ChevronRight size={15} className="text-neutral-300" />}
@@ -149,11 +178,13 @@ export default function CurriculumDetailPage() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
   )

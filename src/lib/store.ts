@@ -187,3 +187,49 @@ export function loadOpenTabs(curriculumId: string): OpenTabs | null {
     return null;
   }
 }
+
+export function getUnitProgress(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
+  const cp = progress.find((p) => progress.some((pr) => pr.curriculum_id === progress[0]?.curriculum_id));
+  const total = unit.lessons.length;
+  if (total === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  const state = loadState();
+  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
+  
+  if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
+  
+  const completed = unit.lessons.filter((lesson) => {
+    const lp = curriculumProgress?.lessons[lesson.id];
+    return lp?.completed === true;
+  }).length;
+  
+  return { completed, total, percentage: Math.round((completed / total) * 100) };
+}
+
+export function getModuleProgress(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
+  const state = loadState();
+  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
+  
+  const allLessons = module.units.flatMap((u) => u.lessons);
+  const total = allLessons.length;
+  if (total === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
+  
+  const completed = allLessons.filter((lesson) => {
+    const lp = curriculumProgress.lessons[lesson.id];
+    return lp?.completed === true;
+  }).length;
+  
+  return { completed, total, percentage: Math.round((completed / total) * 100) };
+}
+
+export function isUnitCompleted(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): boolean {
+  const prog = getUnitProgress(unit, progress);
+  return prog.total > 0 && prog.completed === prog.total;
+}
+
+export function isModuleCompleted(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): boolean {
+  const prog = getModuleProgress(module, progress);
+  return prog.total > 0 && prog.completed === prog.total;
+}

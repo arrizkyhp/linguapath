@@ -16,6 +16,7 @@ import type {
   SpeechContent,
   ReadingContent,
   ListeningContent,
+  ItemPerformance,
 } from "@/types/curriculum";
 import type {
   WorkerMessage,
@@ -47,6 +48,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
+import { cn } from "@/lib/utils";
 
 // ── Whisper loader ───────────────────────────────────────
 async function loadWhisperModel(
@@ -80,6 +82,40 @@ async function loadWhisperModel(
     console.error("Failed to load Whisper model:", error);
     setModelLoading(false);
     throw error;
+  }
+}
+ 
+// ── Audio chunking utility for Whisper ────────────────────
+function splitAudioIntoChunks(audioBlob: Blob, chunkDuration: number = 25): Blob[] {
+  const chunks: Blob[] = [];
+  const totalDuration = audioBlob.size / 1; // Rough estimate: 1 byte = 1ms
+  const sampleRate = 16000; // Whisper expects 16kHz
+  const bytesPerSecond = sampleRate * 2; // 16bit = 2 bytes
+  const chunkBytes = chunkDuration * bytesPerSecond;
+  
+  let start = 0;
+  while (start < audioBlob.size) {
+    const end = Math.min(start + chunkBytes, audioBlob.size);
+    chunks.push(audioBlob.slice(start, end));
+    start = end;
+  }
+  return chunks;
+}
+
+async function transcribeWithChunking(
+  audioUrl: string,
+  pipeline: any,
+): Promise<string> {
+  try {
+    const result = await pipeline(audioUrl, {
+      language: "english",
+      task: "transcribe",
+      chunk_length_s: 25,
+      stride_length_s: 2,
+    });
+    return result.text.trim();
+  } finally {
+    URL.revokeObjectURL(audioUrl);
   }
 }
 
@@ -139,12 +175,14 @@ export default function LessonPage() {
   const [flipped, setFlipped] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledCardOrder, setShuffledCardOrder] = useState<number[]>([]);
+  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>([]);
 
   // Quiz / Reading state
   const [qIdx, setQIdx] = useState(0);
   const [selectedAns, setSelectedAns] = useState<number | null>(null);
   const [showExp, setShowExp] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
+  const [incorrectQuestionIndices, setIncorrectQuestionIndices] = useState<number[]>([]);
 
   // Fill blank state
   const [fbIdx, setFbIdx] = useState(0);
@@ -175,6 +213,7 @@ export default function LessonPage() {
   } | null>(null);
   const [parseError, setParseError] = useState("");
   const [showRawFeedback, setShowRawFeedback] = useState(false);
+  const [feedbackSidebarOpen, setFeedbackSidebarOpen] = useState(false);
 
   // Speech state
   const [recording, setRecording] = useState(false);
@@ -256,8 +295,18 @@ export default function LessonPage() {
         setShowFirstTimeMessage(true);
       if (!localStorage.getItem("kokoro_model_loaded"))
         setShowKokoroFirstTimeMessage(true);
+      if (lesson?.type === "writing" && parsedFeedback) {
+        const saved = localStorage.getItem("feedback-sidebar-open");
+        setFeedbackSidebarOpen(saved !== "false");
+      }
     }
   }, [curriculumId, lessonId]);
+  
+  useEffect(() => {
+    if (lesson?.type === "writing" && parsedFeedback) {
+      localStorage.setItem("feedback-sidebar-open", String(feedbackSidebarOpen));
+    }
+  }, [feedbackSidebarOpen, lesson, parsedFeedback]);
 
   // Pre-generate audio as soon as lesson loads (using Web Worker)
   useEffect(() => {
@@ -359,7 +408,34 @@ export default function LessonPage() {
 
   function markComplete() {
     if (!lesson) return;
-    completeLesson(curriculumId, lessonId, lesson.xp);
+    
+    let itemPerformance: ItemPerformance[] | undefined;
+    
+    if (lesson.type === "quiz" || lesson.type === "reading" || lesson.type === "listening") {
+      const content = lesson.content as QuizContent | ReadingContent | ListeningContent;
+      const questions = 'questions' in content ? content.questions : [];
+      itemPerformance = questions.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'question' as const,
+        correct: !incorrectQuestionIndices.includes(i),
+      }));
+    } else if (lesson.type === "fill_blank") {
+      const content = lesson.content as FillBlankContent;
+      itemPerformance = content.sentences.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'sentence' as const,
+        correct: !incorrectQuestionIndices.includes(i),
+      }));
+    } else if (lesson.type === "flashcard") {
+      const content = lesson.content as FlashcardContent;
+      itemPerformance = content.cards.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'card' as const,
+        correct: !difficultCardIndices.includes(i),
+      }));
+    }
+    
+    completeLesson(curriculumId, lessonId, lesson.xp, itemPerformance);
     dispatchStateUpdate();
     toast(`+${lesson.xp} XP earned! 🎉`, "success");
     setDone(true);
@@ -534,15 +610,28 @@ export default function LessonPage() {
                 Complete Lesson ✓
               </Button>
             ) : (
-              <Button
-                className="flex-1"
-                onClick={() => {
-                  setFlipped(false);
-                  setCardIdx(cardIdx + 1);
-                }}
-              >
-                Next <ChevronRight size={16} />
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                  onClick={() => {
+                    setDifficultCardIndices(prev => [...prev, cardIndex]);
+                    setFlipped(false);
+                    setCardIdx(cardIdx + 1);
+                  }}
+                >
+                  Don't Know
+                </Button>
+                <Button
+                  className="flex-1 border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300"
+                  onClick={() => {
+                    setFlipped(false);
+                    setCardIdx(cardIdx + 1);
+                  }}
+                >
+                  Know It ✓
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -617,7 +706,11 @@ export default function LessonPage() {
                     if (!showExp) {
                       setSelectedAns(i);
                       setShowExp(true);
-                      if (isCorrect) setCorrectCount((c) => c + 1);
+                      if (isCorrect) {
+                        setCorrectCount((c) => c + 1);
+                      } else {
+                        setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                      }
                     }
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}
@@ -699,6 +792,9 @@ export default function LessonPage() {
                     if (!fbShowExp) {
                       setFbSelected(opt);
                       setFbShowExp(true);
+                      if (opt !== s.answer) {
+                        setIncorrectQuestionIndices(prev => [...prev, fbIdx]);
+                      }
                     }
                   }}
                   className={`px-4 py-3 rounded-xl border-2 transition-all font-medium ${cls}`}
@@ -1052,19 +1148,21 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
         detectedFormat: detectedFormat || "Mixed format"
       });
       
-      setParseError("");
-      setShowRawFeedback(false);
-      setShowPasteArea(false);
-      setPastedFeedback("");
-      toast(`Feedback parsed successfully! (${detectedFormat || "Standard"})`, "success");
-    }
+       setParseError("");
+       setShowRawFeedback(false);
+       setShowPasteArea(false);
+       setPastedFeedback("");
+       setFeedbackSidebarOpen(true);
+       toast(`Feedback parsed successfully! (${detectedFormat || "Standard"})`, "success");
+     }
 
     const errorCount = grammarErrors.length;
 
     return (
       <>
         <Header />
-        <div className="p-8 max-w-2xl mx-auto">
+        <div className="flex min-h-[calc(100vh-80px)] p-8 gap-8">
+          <div className="flex-1 max-w-2xl">
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 mb-6">
             <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">
               Writing Prompt
@@ -1318,42 +1416,71 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
               </span>
             </div>
           )}
+          {parsedFeedback && !feedbackSidebarOpen && (
+            <div className="flex items-center justify-center mt-4">
+              <button
+                onClick={() => setFeedbackSidebarOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+              >
+                <Sparkles size={20} />
+                <span>Open AI Feedback Sidebar</span>
+              </button>
+            </div>
+          )}
+          <Button
+            className="w-full"
+            disabled={minWords > 0 && wordCount < minWords}
+            onClick={markComplete}
+          >
+            Submit & Complete ✓
+          </Button>
+          </div>
+          
           {parsedFeedback && (
-            <div className="mb-6 border border-purple-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
+            <div 
+              className={cn(
+                "fixed right-0 top-[80px] h-[calc(100vh-80px)] w-96 bg-white border-l border-neutral-200 shadow-2xl z-30 overflow-hidden transition-all duration-300 ease-in-out",
+                feedbackSidebarOpen ? "translate-x-0" : "translate-x-full"
+              )}
+            >
+              <div className="flex items-center justify-between p-4 border-b border-neutral-100 bg-purple-50">
                 <div className="flex items-center gap-2">
-                  <Sparkles size={15} className="text-purple-600" />
+                  <Sparkles size={16} className="text-purple-600" />
                   <div>
-                    <span className="text-sm font-medium text-purple-800">
+                    <span className="text-sm font-semibold text-purple-800">
                       AI Feedback (Parsed)
                     </span>
                     {parsedFeedback.detectedFormat && (
                       <div className="text-xs text-purple-600 mt-0.5">
-                        Format: {parsedFeedback.detectedFormat}
+                        {parsedFeedback.detectedFormat}
                       </div>
                     )}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {pastedFeedback && (
-                    <button
-                      onClick={() => setShowRawFeedback(!showRawFeedback)}
-                      className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
-                    >
-                      {showRawFeedback ? "Hide Raw" : "View Raw"}
-                    </button>
-                  )}
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setShowRawFeedback(!showRawFeedback)}
+                    className="text-xs text-purple-600 hover:text-purple-900 px-2 py-1 hover:bg-purple-100 rounded transition-colors"
+                  >
+                    {showRawFeedback ? "Hide Raw" : "View Raw"}
+                  </button>
                   <button
                     onClick={() => setParsedFeedback(null)}
-                    className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
+                    className="text-xs text-purple-600 hover:text-purple-900 px-2 py-1 hover:bg-purple-100 rounded transition-colors"
                   >
                     Clear
+                  </button>
+                  <button
+                    onClick={() => setFeedbackSidebarOpen(false)}
+                    className="text-neutral-400 hover:text-neutral-600 p-1 hover:bg-neutral-100 rounded transition-colors"
+                  >
+                    <ChevronLeft size={18} />
                   </button>
                 </div>
               </div>
               
               {showRawFeedback && pastedFeedback && (
-                <div className="p-4 bg-neutral-50 border-b border-purple-100">
+                <div className="p-4 bg-neutral-50 border-b border-neutral-100">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-medium text-neutral-600">Original AI Response</span>
                     <button
@@ -1374,7 +1501,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                 </div>
               )}
               
-              <div className="p-4 bg-white space-y-4">
+              <div className="p-4 bg-white space-y-4 overflow-y-auto h-[calc(100%-100px)]">
                 {parsedFeedback.naturalnessScore > 0 && (
                   <div>
                     <div className="flex items-center justify-between mb-2">
@@ -1409,7 +1536,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                     <h4 className="text-sm font-medium text-neutral-700 mb-2">
                       Suggestions ({parsedFeedback.errors.length})
                     </h4>
-                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                    <div className="space-y-2">
                       {parsedFeedback.errors.map((err, i) => (
                         <div key={i} className="p-3 border border-neutral-200 rounded-lg">
                           <div className="flex items-center gap-2 mb-1">
@@ -1466,13 +1593,6 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
               </div>
             </div>
           )}
-          <Button
-            className="w-full"
-            disabled={minWords > 0 && wordCount < minWords}
-            onClick={markComplete}
-          >
-            Submit & Complete ✓
-          </Button>
         </div>
       </>
     );
@@ -1567,12 +1687,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
               setTranscriptionStatus("processing");
               try {
                 const audioUrl = URL.createObjectURL(blob);
-                const result = await whisperPipelineRef.current(audioUrl, {
-                  language: "english",
-                  task: "transcribe",
-                });
-                URL.revokeObjectURL(audioUrl);
-                const transcript = result.text.trim();
+                const transcript = await transcribeWithChunking(audioUrl, whisperPipelineRef.current);
                 setAllTranscripts(transcript);
                 setDetectedKeywords(
                   keywords.filter((kw) =>
@@ -1921,6 +2036,9 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                         if (!showExp) {
                           setSelectedAns(i);
                           setShowExp(true);
+                          if (!isCorrect) {
+                            setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                          }
                         }
                       }}
                       className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}
@@ -2218,7 +2336,11 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                     if (!showExp) {
                       setSelectedAns(i);
                       setShowExp(true);
-                      if (isCorrect) setCorrectCount((c) => c + 1);
+                      if (isCorrect) {
+                        setCorrectCount((c) => c + 1);
+                      } else {
+                        setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                      }
                     }
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}

@@ -110,10 +110,28 @@ export interface CurriculumFile {
 
 // ── Progress Types ───────────────────────────────────────────
 
+export interface ItemPerformance {
+  itemIndex: number;
+  itemType: 'card' | 'question' | 'sentence' | 'keyword';
+  correct: boolean;
+  attempts?: number;
+}
+
 export interface LessonProgress {
   completed: boolean;
   xp_earned: number;
   completed_at?: string;
+  next_review_date?: string;
+  ease_factor?: number;
+  review_count?: number;
+  last_review_date?: string;
+  interval_days?: number;
+  difficult_items?: ItemPerformance[];
+  incorrect_question_indices?: number[];
+  difficult_card_indices?: number[];
+  missed_keywords?: string[];
+  total_items?: number;
+  correct_items?: number;
 }
 
 export interface CurriculumProgress {

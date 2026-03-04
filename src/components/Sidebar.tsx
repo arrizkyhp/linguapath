@@ -10,6 +10,7 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  Brain,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LEVEL_CONFIG } from "@/lib/config";
@@ -18,6 +19,7 @@ import type { CEFRLevel } from "@/types/curriculum";
 const NAV = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { href: "/curriculum", icon: BookOpen, label: "Curriculum" },
+  { href: "/reviews", icon: Brain, label: "Reviews" },
   { href: "/import", icon: Upload, label: "Import Curriculum" },
   { href: "/settings", icon: Settings, label: "Settings" },
 ];

@@ -1,13 +1,13 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, getCurriculumProgress } from "@/lib/store"
+import { loadState, getCurriculumProgress, getAllDueReviewsCount } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import type { AppState } from "@/types/curriculum"
-import { Flame, Star, BookOpen, Trophy, ArrowRight } from "lucide-react"
+import { Flame, Star, BookOpen, Trophy, ArrowRight, Brain } from "lucide-react"
 
 const DAILY_CHALLENGES = [
   "Write 3 sentences using inversion (e.g. 'Never have I...')",
@@ -37,6 +37,7 @@ export default function DashboardPage() {
   const totalLessonsCompleted = state.progress.reduce(
     (acc, cp) => acc + Object.values(cp.lessons).filter((l) => l.completed).length, 0
   )
+  const dueReviewsCount = getAllDueReviewsCount()
 
   // Find continue lesson
   let continueCurriculum = state.curriculums[0]
@@ -118,6 +119,34 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+
+        {dueReviewsCount > 0 && (
+          <Card className="mb-6 border-purple-200 bg-purple-50">
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
+                    <Brain className="text-purple-600" size={24} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-purple-900 text-lg">
+                      {dueReviewsCount} Review{dueReviewsCount !== 1 ? 's' : ''} Due
+                    </div>
+                    <div className="text-sm text-purple-700">
+                      Strengthen your memory before you forget
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => router.push("/reviews")}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Start Review <ArrowRight size={16} />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <div className="grid grid-cols-5 gap-6">
           {/* Continue Learning */}

@@ -84,24 +84,12 @@ async function loadWhisperModel(
     throw error;
   }
 }
- 
-// ── Audio chunking utility for Whisper ────────────────────
-function splitAudioIntoChunks(audioBlob: Blob, chunkDuration: number = 25): Blob[] {
-  const chunks: Blob[] = [];
-  const totalDuration = audioBlob.size / 1; // Rough estimate: 1 byte = 1ms
-  const sampleRate = 16000; // Whisper expects 16kHz
-  const bytesPerSecond = sampleRate * 2; // 16bit = 2 bytes
-  const chunkBytes = chunkDuration * bytesPerSecond;
-  
-  let start = 0;
-  while (start < audioBlob.size) {
-    const end = Math.min(start + chunkBytes, audioBlob.size);
-    chunks.push(audioBlob.slice(start, end));
-    start = end;
-  }
-  return chunks;
-}
 
+// ── Constants for Whisper chunking ───────────────────────
+const WHISPER_CHUNK_LENGTH_S = 25;
+const WHISPER_STRIDE_LENGTH_S = 2;
+
+// ── Whisper helper for chunked transcription ─────────────
 async function transcribeWithChunking(
   audioUrl: string,
   pipeline: any,
@@ -110,8 +98,8 @@ async function transcribeWithChunking(
     const result = await pipeline(audioUrl, {
       language: "english",
       task: "transcribe",
-      chunk_length_s: 25,
-      stride_length_s: 2,
+      chunk_length_s: WHISPER_CHUNK_LENGTH_S,
+      stride_length_s: WHISPER_STRIDE_LENGTH_S,
     });
     return result.text.trim();
   } finally {

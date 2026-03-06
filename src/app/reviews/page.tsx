@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { loadState, getDueReviews, scheduleReview } from "@/lib/store";
 import { dispatchStateUpdate } from "@/components/AppLayout";
@@ -32,6 +32,8 @@ export default function ReviewsPage() {
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const [showPerformanceRating, setShowPerformanceRating] = useState(false);
+  const [searchParams, setSearchParams] = useState<{ review?: string; completed?: string }>({});
+  const justCompleted = useRef(false);
 
   useEffect(() => {
     const s = loadState();
@@ -41,9 +43,21 @@ export default function ReviewsPage() {
     }
     setState(s);
   }, [router]);
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSearchParams({ 
+      review: params.get("review") || undefined,
+      completed: params.get("completed") || undefined
+    });
+    if (params.get("completed") === "true") {
+      setShowPerformanceRating(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!state) return;
+    if (justCompleted.current) return; // Don't recalculate right after completing a review
 
     const dueReviews: ReviewItem[] = [];
 
@@ -74,6 +88,7 @@ export default function ReviewsPage() {
     setReviews(dueReviews.sort((a, b) => 
       new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
     ));
+    justCompleted.current = false;
   }, [state]);
 
   function findLesson(curriculum: Curriculum, lessonId: string): Lesson | null {
@@ -94,8 +109,13 @@ export default function ReviewsPage() {
     scheduleReview(currentReview.curriculumId, currentReview.lessonId, performance);
     dispatchStateUpdate();
 
-    if (currentReviewIndex < reviews.length - 1) {
-      setCurrentReviewIndex(currentReviewIndex + 1);
+    router.replace("/reviews");
+
+    justCompleted.current = true;
+
+    const nextIndex = currentReviewIndex + 1;
+    if (nextIndex < reviews.length) {
+      setCurrentReviewIndex(nextIndex);
       setShowPerformanceRating(false);
     } else {
       confetti({
@@ -133,7 +153,7 @@ export default function ReviewsPage() {
   }
 
   const currentReview = reviews[currentReviewIndex];
-  const progress = ((currentReviewIndex) / reviews.length) * 100;
+  const progress = ((currentReviewIndex + 1) / reviews.length) * 100;
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
@@ -219,7 +239,6 @@ export default function ReviewsPage() {
                 className="w-full"
                 onClick={() => {
                   router.push(`/lesson/${currentReview.curriculumId}/${currentReview.lessonId}?review=true`);
-                  setShowPerformanceRating(true);
                 }}
               >
                 Start Review Lesson

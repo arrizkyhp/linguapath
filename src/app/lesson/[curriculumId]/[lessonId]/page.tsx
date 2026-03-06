@@ -157,6 +157,7 @@ export default function LessonPage() {
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
   const [alreadyComplete, setAlreadyComplete] = useState(false);
+  const [searchParams, setSearchParams] = useState<{ review?: string }>({});
 
   // Flashcard state
   const [cardIdx, setCardIdx] = useState(0);
@@ -290,6 +291,11 @@ export default function LessonPage() {
     }
   }, [curriculumId, lessonId]);
   
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSearchParams({ review: params.get("review") || undefined });
+  }, []);
+
   useEffect(() => {
     if (lesson?.type === "writing" && parsedFeedback) {
       localStorage.setItem("feedback-sidebar-open", String(feedbackSidebarOpen));
@@ -467,9 +473,9 @@ export default function LessonPage() {
             <div className="flex gap-3 justify-center">
               <Button
                 variant="outline"
-                onClick={() => router.push(`/curriculum/${curriculumId}`)}
+                onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
               >
-                Back to Curriculum
+                {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
               </Button>
               <Button onClick={() => router.push("/dashboard")}>
                 Dashboard
@@ -485,7 +491,7 @@ export default function LessonPage() {
   const Header = () => (
     <div className="border-b border-neutral-100 px-8 py-4 flex items-center gap-4 bg-white">
       <button
-        onClick={() => router.push(`/curriculum/${curriculumId}`)}
+        onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
         className="text-neutral-400 hover:text-neutral-700 transition-colors"
       >
         <ChevronLeft size={20} />

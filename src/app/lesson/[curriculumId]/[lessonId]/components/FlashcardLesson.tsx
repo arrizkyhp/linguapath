@@ -1,12 +1,11 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { ChevronLeft, ChevronRight, RotateCcw, Shuffle, List } from 'lucide-react';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { LessonHeader } from './LessonHeader';
-import { LESSON_TYPE_CONFIG } from '@/lib/config';
-import type { Lesson, FlashcardContent } from '@/types/curriculum';
+import { useState } from "react";
+import { ChevronRight, RotateCcw, Shuffle, List } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
+import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import type { Lesson, FlashcardContent } from "@/types/curriculum";
 
 type FlashcardLessonProps = {
   lesson: Lesson;
@@ -29,12 +28,44 @@ export function FlashcardLesson({
   const [flipped, setFlipped] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledCardOrder, setShuffledCardOrder] = useState<number[]>([]);
-  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>([]);
+  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>(
+    [],
+  );
+  const [direction, setDirection] = useState(1);
+  const [isInitial, setIsInitial] = useState(true);
 
   const content = lesson.content as FlashcardContent;
   const cardIndex = isShuffled ? shuffledCardOrder[cardIdx] : cardIdx;
   const card = content.cards[cardIndex];
   const isLast = cardIdx === content.cards.length - 1;
+
+  const cardVariants = {
+    enter: (dir: number) => ({
+      x: dir > 0 ? 200 : 0,
+      scale: 0.9,
+      opacity: 0.5,
+      zIndex: 1,
+    }),
+    center: {
+      x: 0,
+      scale: 1,
+      opacity: 1,
+      zIndex: 1,
+    },
+    exit: (dir: number) => ({
+      x: dir > 0 ? 0 : -200,
+      scale: 0.9,
+      opacity: 0.5,
+      zIndex: 0,
+    }),
+  };
+
+  function handleNavigate(newDir: number) {
+    setDirection(newDir);
+    setIsInitial(false);
+    setFlipped(false);
+    setCardIdx((prev) => Math.max(0, prev + newDir));
+  }
 
   function toggleShuffle() {
     if (isShuffled) {
@@ -62,57 +93,61 @@ export function FlashcardLesson({
         value={((cardIdx + 1) / content.cards.length) * 100}
         className="mb-8"
       />
-      <div
-        onClick={() => setFlipped(!flipped)}
-        className="cursor-pointer bg-white border border-neutral-200 rounded-2xl p-10 text-center shadow-sm hover:shadow-md transition-all min-h-48 flex flex-col items-center justify-center mb-6"
-      >
-        {!flipped ? (
-          <>
-            <div className="font-serif text-3xl font-semibold text-neutral-900 mb-2">
-              {card.front}
-            </div>
-            <div className="text-xs text-neutral-400">Click to reveal</div>
-          </>
-        ) : (
-          <>
-            <div className="font-serif text-2xl text-neutral-700 mb-3">
-              {card.back}
-            </div>
-            {card.example && (
-              <div className="text-sm text-neutral-400 italic border-t border-neutral-100 pt-3 mt-2">
-                &ldquo;{card.example}&rdquo;
-              </div>
+      <div className="relative mb-6 min-h-48">
+        <AnimatePresence mode="popLayout" custom={direction}>
+          <motion.div
+            key={cardIdx}
+            custom={direction}
+            variants={cardVariants}
+            initial={isInitial ? false : "enter"}
+            animate="center"
+            exit={isInitial ? false : "exit"}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            onClick={() => setFlipped(!flipped)}
+            className="absolute inset-0 cursor-pointer bg-white border border-neutral-200 rounded-2xl p-10 text-center shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-center"
+          >
+            {!flipped ? (
+              <>
+                <div className="font-serif text-3xl font-semibold text-neutral-900 mb-2">
+                  {card.front}
+                </div>
+                <div className="text-xs text-neutral-400">Click to reveal</div>
+              </>
+            ) : (
+              <>
+                <div className="font-serif text-2xl text-neutral-700 mb-3">
+                  {card.back}
+                </div>
+                {card.example && (
+                  <div className="text-sm text-neutral-400 italic border-t border-neutral-100 pt-3 mt-2">
+                    &ldquo;{card.example}&rdquo;
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+          </motion.div>
+        </AnimatePresence>
       </div>
       <div className="flex gap-3 items-center justify-center">
         <Button
           variant="outline"
           className="flex-1"
-          onClick={() => {
-            setFlipped(false);
-            setCardIdx(Math.max(0, cardIdx - 1));
-          }}
+          onClick={() => handleNavigate(-1)}
           disabled={cardIdx === 0}
         >
           <ChevronRight size={16} className="rotate-180" /> Previous
         </Button>
-         <Button
-           variant="ghost"
-           size="icon"
-           onClick={() => setFlipped(false)}
-         >
-           <RotateCcw size={16} />
-         </Button>
-         <Button
-           variant="ghost"
-           size="icon"
-           onClick={toggleShuffle}
-           className={isShuffled ? "text-orange-600" : ""}
-         >
-           {isShuffled ? <List size={16} /> : <Shuffle size={16} />}
-         </Button>
+        <Button variant="ghost" size="icon" onClick={() => setFlipped(false)}>
+          <RotateCcw size={16} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleShuffle}
+          className={isShuffled ? "text-orange-600" : ""}
+        >
+          {isShuffled ? <List size={16} /> : <Shuffle size={16} />}
+        </Button>
         {isLast ? (
           <Button className="flex-1" onClick={onComplete}>
             Complete Lesson ✓
@@ -123,9 +158,8 @@ export function FlashcardLesson({
               variant="outline"
               className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
               onClick={() => {
-                setDifficultCardIndices(prev => [...prev, cardIndex]);
-                setFlipped(false);
-                setCardIdx(cardIdx + 1);
+                setDifficultCardIndices((prev) => [...prev, cardIndex]);
+                handleNavigate(1);
               }}
             >
               Don't Know
@@ -133,8 +167,7 @@ export function FlashcardLesson({
             <Button
               className="flex-1 border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300"
               onClick={() => {
-                setFlipped(false);
-                setCardIdx(cardIdx + 1);
+                handleNavigate(1);
               }}
             >
               Know It ✓

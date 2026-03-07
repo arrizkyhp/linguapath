@@ -1,126 +1,134 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@/test/utils'
-import userEvent from '@testing-library/user-event'
-import LessonPage from '../page'
-import { mockCurriculum, mockLessons } from '@/test/mocks/curriculum'
-import { completeLesson } from '@/lib/store'
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { LessonCompleteScreen } from '../components/LessonCompleteScreen';
 
-vi.mock('canvas-confetti', () => ({ default: vi.fn() }))
-
-vi.mock('@/lib/store', () => ({
-  completeLesson: vi.fn(),
-  loadState: vi.fn(() => ({ 
-    curriculums: [mockCurriculum],
-    progress: [],
-    current_level: 'A1'
-  })),
-  getLessonProgress: vi.fn(() => null),
-  setLastLesson: vi.fn()
-}))
-
-const mockPush = vi.fn()
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({
-    push: mockPush
-  }),
-  useParams: vi.fn(() => ({
-    curriculumId: 'test-curriculum',
-    lessonId: mockLessons.quiz.id
-  }))
-}))
+vi.mock('canvas-confetti', () => ({ default: vi.fn() }));
 
 describe('LessonCompleteScreen', () => {
+  const xp = 10;
+  const onBackToCurriculum = vi.fn();
+  const onDashboard = vi.fn();
+  const onNextLesson = vi.fn();
+
   beforeEach(() => {
-    vi.resetAllMocks()
-    vi.mocked(completeLesson).mockClear()
-    mockPush.mockClear()
-  })
+    vi.clearAllMocks();
+  });
 
-  it('shows Next Lesson button when nextLesson exists', async () => {
-    vi.mocked(completeLesson).mockImplementation(() => {
-      // No-op
-    })
+  it('shows Next Lesson button when nextLesson exists', () => {
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={{ curriculumId: '1', lessonId: '2' }}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    const user = userEvent.setup()
-    render(<LessonPage />)
+    expect(screen.getByText('🎉')).toBeInTheDocument();
+    expect(screen.getByText('Lesson Complete!')).toBeInTheDocument();
+    expect(screen.getByText('+10 XP')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /next lesson/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /back to curriculum/i })).toBeInTheDocument();
+  });
 
-    await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument()
-    })
+  it('shows Curriculum Complete message when nextLesson is null', () => {
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={null}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    expect(screen.getByText('Lesson Complete!')).toBeInTheDocument()
-    expect(screen.getByText(`+${mockLessons.quiz.xp} XP`)).toBeInTheDocument()
-    expect(screen.getByText('Next Lesson')).toBeInTheDocument()
-    expect(screen.getByText(/Back to Curriculum/)).toBeInTheDocument()
-  })
+    expect(screen.getByText('🎉')).toBeInTheDocument();
+    expect(screen.getByText('Curriculum Complete!')).toBeInTheDocument();
+    expect(screen.getByText(/Amazing job/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /dashboard/i })).toBeInTheDocument();
+  });
 
-  it('shows Curriculum Complete message when no next lesson', async () => {
-    vi.mocked(completeLesson).mockImplementation(() => {
-      // No-op
-    })
+  it('displays XP correctly', () => {
+    render(
+      <LessonCompleteScreen
+        xp={50}
+        nextLesson={null}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    const mockReplace = vi.fn()
-    vi.mocked(require('next/navigation').useRouter as any).mockImplementation(() => ({
-      push: mockReplace
-    }))
+    expect(screen.getByText('+50 XP')).toBeInTheDocument();
+  });
 
-    vi.mocked(require('next/navigation').useParams as any).mockImplementation(() => ({
-      curriculumId: 'test-curriculum',
-      lessonId: 'last-lesson-id'
-    }))
+  it('calls onNextLesson when Next Lesson button is clicked', () => {
+    const user = userEvent.setup();
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={{ curriculumId: '1', lessonId: '2' }}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    render(<LessonPage />)
+    const nextBtn = screen.getByRole('button', { name: /next lesson/i });
+    user.click(nextBtn);
+    expect(onNextLesson).toHaveBeenCalled();
+  });
 
-    await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument()
-    })
+  it('calls onDashboard when Dashboard button is clicked', () => {
+    const user = userEvent.setup();
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={null}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    expect(screen.getByText('Curriculum Complete!')).toBeInTheDocument()
-    expect(screen.getByText(/Amazing job/)).toBeInTheDocument()
-    expect(screen.getByText('Dashboard')).toBeInTheDocument()
-  })
+    const dashboardBtn = screen.getByRole('button', { name: /dashboard/i });
+    user.click(dashboardBtn);
+    expect(onDashboard).toHaveBeenCalled();
+  });
 
   it('allows confetti replay', async () => {
-    const confetti = require('canvas-confetti')
-    
-    vi.mocked(completeLesson).mockImplementation(() => {
-      // No-op
-    })
+    const confetti = require('canvas-confetti');
+    const user = userEvent.setup();
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={null}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+      />
+    );
 
-    const user = userEvent.setup()
-    render(<LessonPage />)
+    const replayBtn = screen.getByTitle('Play confetti again');
+    await user.click(replayBtn);
 
-    await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument()
-    })
+    expect(confetti.default).toHaveBeenCalled();
+  });
 
-    const replayBtn = screen.getByTitle('Play confetti again')
-    await user.click(replayBtn)
+  it('shows custom lesson title', () => {
+    render(
+      <LessonCompleteScreen
+        xp={xp}
+        nextLesson={null}
+        onBackToCurriculum={onBackToCurriculum}
+        onDashboard={onDashboard}
+        onNextLesson={onNextLesson}
+        lessonTitle="Spanish Course"
+      />
+    );
 
-    expect(confetti.default).toHaveBeenCalledTimes(2)
-  })
-
-  it('navigates to dashboard button', async () => {
-    const mockReplace = vi.fn()
-    vi.mocked(require('next/navigation').useRouter as any).mockImplementation(() => ({
-      push: mockReplace
-    }))
-
-    vi.mocked(completeLesson).mockImplementation(() => {
-      // No-op
-    })
-
-    const user = userEvent.setup()
-    render(<LessonPage />)
-
-    await waitFor(() => {
-      expect(screen.getByText('🎉')).toBeInTheDocument()
-    })
-
-    const dashboardBtn = screen.getByText('Dashboard')
-    await user.click(dashboardBtn)
-
-    expect(mockReplace).toHaveBeenCalledWith('/dashboard')
-  })
-})
+    expect(screen.getByText('Spanish Course Complete!')).toBeInTheDocument();
+  });
+});

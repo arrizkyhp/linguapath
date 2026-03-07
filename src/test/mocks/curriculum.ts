@@ -38,7 +38,7 @@ const mockFillBlankLesson: Lesson = {
   content: {
     sentences: [
       {
-        text: "I _____ to the store yesterday.",
+        text: "I ___ to the store yesterday.",
         answer: "went",
         options: ["go", "went", "gone", "going"],
         explanation: "Past tense of go is went.",

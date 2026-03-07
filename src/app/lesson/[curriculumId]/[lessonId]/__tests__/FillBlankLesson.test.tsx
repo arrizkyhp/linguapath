@@ -175,10 +175,10 @@ describe('FillBlankLesson', () => {
   })
 
   it('handles multiple sentences', async () => {
-    vi.resetAllMocks()
-
     const multiSentenceLesson = {
       ...mockLessons.fill_blank,
+      id: 'lesson-fillblank-multi',
+      title: 'Fill in the Blanks',
       content: {
         sentences: [
           {
@@ -197,7 +197,31 @@ describe('FillBlankLesson', () => {
       }
     }
 
-    vi.mocked(require('@/test/mocks/curriculum').mockLessons.fill_blank).mockReturnValue(multiSentenceLesson)
+    vi.mock('@/lib/store', () => {
+      const multiMockCurriculum = {
+        ...mockCurriculum,
+        modules: (mockCurriculum as any).modules.map((module: any) => ({
+          ...module,
+          units: module.units.map((unit: any) => ({
+            ...unit,
+            lessons: unit.lessons.map((lesson: any) => 
+              lesson.id === mockLessons.fill_blank.id ? multiSentenceLesson : lesson
+            )
+          }))
+        }))
+      }
+
+      return {
+        completeLesson: vi.fn(),
+        loadState: vi.fn(() => ({ 
+          curriculums: [multiMockCurriculum],
+          progress: [],
+          current_level: 'A1'
+        })),
+        getLessonProgress: vi.fn(() => null),
+        setLastLesson: vi.fn()
+      }
+    })
 
     render(<LessonPage />)
 

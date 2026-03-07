@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import type {
   Lesson,
+  Curriculum,
   FlashcardContent,
   QuizContent,
   FillBlankContent,
@@ -158,6 +159,7 @@ export default function LessonPage() {
   const [done, setDone] = useState(false);
   const [alreadyComplete, setAlreadyComplete] = useState(false);
   const [searchParams, setSearchParams] = useState<{ review?: string }>({});
+  const [nextLesson, setNextLesson] = useState<{ curriculumId: string; lessonId: string } | null>(null);
 
   // Flashcard state
   const [cardIdx, setCardIdx] = useState(0);
@@ -276,6 +278,7 @@ export default function LessonPage() {
     if (foundLesson) {
       setLesson(foundLesson);
       setLastLesson(curriculumId, foundModuleId!, foundUnitId!, lessonId);
+      findNextLesson(curr, foundModuleId!, foundUnitId!, lessonId);
     }
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
@@ -435,6 +438,55 @@ export default function LessonPage() {
     setDone(true);
   }
 
+  function findNextLesson(
+    curriculum: Curriculum,
+    currentModuleId: string,
+    currentUnitId: string,
+    currentLessonId: string
+  ) {
+    for (let m = 0; m < curriculum.modules.length; m++) {
+      const module = curriculum.modules[m];
+      if (module.id === currentModuleId) {
+        for (let u = 0; u < module.units.length; u++) {
+          const unit = module.units[u];
+          if (unit.id === currentUnitId) {
+            const lessonIndex = unit.lessons.findIndex(
+              (l: { id: string }) => l.id === currentLessonId
+            );
+            if (lessonIndex < unit.lessons.length - 1) {
+              const nextLesson = unit.lessons[lessonIndex + 1];
+              setNextLesson({
+                curriculumId: curriculum.id,
+                lessonId: nextLesson.id,
+              });
+              return;
+            }
+            for (let nextUnitIdx = u + 1; nextUnitIdx < module.units.length; nextUnitIdx++) {
+              const nextUnit = module.units[nextUnitIdx];
+              if (nextUnit.lessons.length > 0) {
+                setNextLesson({
+                  curriculumId: curriculum.id,
+                  lessonId: nextUnit.lessons[0].id,
+                });
+                return;
+              }
+            }
+            for (let nextModuleIdx = m + 1; nextModuleIdx < curriculum.modules.length; nextModuleIdx++) {
+              const nextModule = curriculum.modules[nextModuleIdx];
+              if (nextModule.units.length > 0 && nextModule.units[0].lessons.length > 0) {
+                setNextLesson({
+                  curriculumId: curriculum.id,
+                  lessonId: nextModule.units[0].lessons[0].id,
+                });
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   if (!lesson) return null;
   const typeCfg = LESSON_TYPE_CONFIG[lesson.type];
 
@@ -449,6 +501,51 @@ export default function LessonPage() {
       });
     };
 
+    if (nextLesson) {
+      return (
+        <>
+          <div className="p-8 flex items-center justify-center min-h-[80vh]">
+            <div className="text-center max-w-sm">
+              <div className="text-6xl mb-4 relative">
+                <span className="relative z-10">🎉</span>
+              </div>
+              <h2 className="font-serif text-3xl font-bold mb-2">
+                Lesson Complete!
+              </h2>
+              <p className="text-neutral-500 mb-2">You earned</p>
+              <div className="text-4xl font-bold text-yellow-500 mb-8">
+                +{lesson.xp} XP
+              </div>
+              <button
+                onClick={replayConfetti}
+                className="text-2xl mb-4 hover:scale-125 transition-transform inline-block"
+                title="Play confetti again"
+              >
+                🎆
+              </button>
+              <p className="mb-6 text-neutral-600">
+                Ready to continue learning?
+              </p>
+              <div className="flex gap-3 justify-center">
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => router.push(`/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`)}
+                >
+                  Next Lesson <ChevronRight size={16} />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
+                >
+                  {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
     return (
       <>
         <div className="p-8 flex items-center justify-center min-h-[80vh]">
@@ -457,9 +554,11 @@ export default function LessonPage() {
               <span className="relative z-10">🎉</span>
             </div>
             <h2 className="font-serif text-3xl font-bold mb-2">
-              Lesson Complete!
+              Curriculum Complete!
             </h2>
-            <p className="text-neutral-500 mb-2">You earned</p>
+            <p className="text-neutral-500 mb-6">
+              You've successfully completed all lessons in this curriculum. Amazing job! 🌟
+            </p>
             <div className="text-4xl font-bold text-yellow-500 mb-8">
               +{lesson.xp} XP
             </div>

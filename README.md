@@ -27,6 +27,7 @@ Open [http://localhost:3000](http://localhost:3000)
 - 🔒 **Lock System** — lessons unlock progressively
 - 7 **Lesson Types**: flashcard, quiz, fill_blank, writing, speech, reading, listening
 - 📊 **Progress Tracking** — XP, streaks, completion tracking
+- 🧠 **Spaced Repetition** — AI-powered review scheduling using SuperMemo-2 algorithm
 - ⚙️ **Settings** — change level, reset progress, clear data
 
 ## Curriculum JSON Schema

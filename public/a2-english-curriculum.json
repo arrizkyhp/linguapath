@@ -9,6 +9,7 @@
       {
         "id": "m1",
         "title": "Fresh Starts & Daily Life",
+        "description": "Master daily routines, time expressions, and present tense to talk about your everyday life and habits.",
         "units": [
           {
             "id": "m1-u1",
@@ -703,6 +704,7 @@
       {
         "id": "m2",
         "title": "Memories & Past Experiences",
+        "description": "Learn to talk about past events, memories, and life changes using past tense and 'used to'.",
         "units": [
           {
             "id": "m2-u1",
@@ -1391,6 +1393,7 @@
       {
         "id": "m3",
         "title": "Food, Dining & Socializing",
+        "description": "Build vocabulary for food, cooking, dining out, and social gatherings with friends.",
         "units": [
           {
             "id": "m3-u1",
@@ -2035,6 +2038,7 @@
       {
         "id": "m4",
         "title": "Travel & Getting Around",
+        "description": "Navigate travel situations: transportation, directions, hotels, and holiday planning.",
         "units": [
           {
             "id": "m4-u1",
@@ -2748,6 +2752,7 @@
       {
         "id": "m5",
         "title": "Health & Wellness",
+        "description": "Discuss health, fitness, illness, and well-being with confidence.",
         "units": [
           {
             "id": "m5-u1",
@@ -3426,6 +3431,7 @@
       {
         "id": "m6",
         "title": "The World of Work",
+        "description": "Handle workplace communication, job descriptions, schedules, and professional relationships.",
         "units": [
           {
             "id": "m6-u1",
@@ -4115,6 +4121,7 @@
       {
         "id": "m7",
         "title": "Shopping & Fashion",
+        "description": "Shop for clothes and goods, discuss style preferences, and handle transactions smoothly.",
         "units": [
           {
             "id": "m7-u1",
@@ -4798,6 +4805,7 @@
       {
         "id": "m8",
         "title": "Nature & The Environment",
+        "description": "Talk about nature, environmental issues, animals, and outdoor activities.",
         "units": [
           {
             "id": "m8-u1",
@@ -5522,6 +5530,7 @@
       {
         "id": "m9",
         "title": "Technology & Digital Life",
+        "description": "Navigate the digital world: devices, internet, social media, and online safety.",
         "units": [
           {
             "id": "m9-u1",
@@ -6253,6 +6262,7 @@
       {
         "id": "m10",
         "title": "Culture, Hobbies & Entertainment",
+        "description": "Discuss movies, music, books, hobbies, and cultural events with enthusiasm.",
         "units": [
           {
             "id": "m10-u1",
@@ -6969,6 +6979,7 @@
       {
         "id": "m11",
         "title": "Home & Living",
+        "description": "Describe your home, household items, living situations, and domestic life.",
         "units": [
           {
             "id": "m11-u1",
@@ -7678,6 +7689,7 @@
       {
         "id": "m12",
         "title": "Personal Growth & Life Stages",
+        "description": "Express goals, dreams, life changes, and future plans with clarity.",
         "units": [
           {
             "id": "m12-u1",

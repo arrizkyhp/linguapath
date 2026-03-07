@@ -1,4 +1,4 @@
-import type { AppState, CEFRLevel, Curriculum, CurriculumProgress, LessonProgress } from "@/types/curriculum";
+import type { AppState, CEFRLevel, Curriculum, CurriculumProgress, LessonProgress, ItemPerformance } from "@/types/curriculum";
 import { sampleCurriculum } from "./sampleData";
 
 const STORAGE_KEY = "linguapath_state";
@@ -109,7 +109,8 @@ export function getLessonProgress(
 export function completeLesson(
   curriculumId: string,
   lessonId: string,
-  xp: number
+  xp: number,
+  itemPerformance?: ItemPerformance[]
 ): void {
   const state = loadState();
   let cp = state.progress.find((p) => p.curriculum_id === curriculumId);
@@ -117,12 +118,203 @@ export function completeLesson(
     cp = { curriculum_id: curriculumId, lessons: {} };
     state.progress = [...state.progress, cp];
   }
+  const now = new Date().toISOString();
+  
+  const difficultItems = itemPerformance?.filter(ip => !ip.correct) || [];
+  const incorrectIndices = itemPerformance
+    ?.filter(ip => ip.itemType === 'question' || ip.itemType === 'sentence')
+    .filter(ip => !ip.correct)
+    .map(ip => ip.itemIndex) || [];
+  const difficultCardIndices = itemPerformance
+    ?.filter(ip => ip.itemType === 'card')
+    .filter(ip => !ip.correct)
+    .map(ip => ip.itemIndex) || [];
+
   cp.lessons[lessonId] = {
     completed: true,
     xp_earned: xp,
-    completed_at: new Date().toISOString(),
+    completed_at: now,
+    next_review_date: addDays(now, 1),
+    ease_factor: 2.5,
+    review_count: 0,
+    interval_days: 1,
+    difficult_items: difficultItems.length > 0 ? difficultItems : undefined,
+    incorrect_question_indices: incorrectIndices.length > 0 ? incorrectIndices : undefined,
+    difficult_card_indices: difficultCardIndices.length > 0 ? difficultCardIndices : undefined,
+    total_items: itemPerformance?.length,
+    correct_items: itemPerformance?.filter(ip => ip.correct).length,
   };
   state.total_xp += xp;
+  saveState(state);
+}
+
+export function updateItemPerformance(
+  curriculumId: string,
+  lessonId: string,
+  itemPerformance: ItemPerformance[]
+): void {
+  const state = loadState();
+  const cp = state.progress.find((p) => p.curriculum_id === curriculumId);
+  if (!cp || !cp.lessons[lessonId]) return;
+
+  const progress = cp.lessons[lessonId];
+  const difficultItems = itemPerformance.filter(ip => !ip.correct);
+  
+  const existingDifficult = progress.difficult_items || [];
+  const mergedDifficult = mergeItemPerformance(existingDifficult, difficultItems);
+  
+  cp.lessons[lessonId] = {
+    ...progress,
+    difficult_items: mergedDifficult.length > 0 ? mergedDifficult : undefined,
+  };
+  
+  saveState(state);
+}
+
+function mergeItemPerformance(
+  existing: ItemPerformance[],
+  newItems: ItemPerformance[]
+): ItemPerformance[] {
+  const map = new Map<string, ItemPerformance>();
+  
+  for (const item of existing) {
+    const key = `${item.itemType}-${item.itemIndex}`;
+    map.set(key, item);
+  }
+  
+  for (const item of newItems) {
+    const key = `${item.itemType}-${item.itemIndex}`;
+    const existingItem = map.get(key);
+    if (existingItem) {
+      existingItem.attempts = (existingItem.attempts || 1) + 1;
+      if (item.correct) {
+        map.delete(key);
+      }
+    } else if (!item.correct) {
+      map.set(key, { ...item, attempts: 1 });
+    }
+  }
+  
+  return Array.from(map.values());
+}
+
+export function addDays(dateString: string, days: number): string {
+  const date = new Date(dateString);
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+export function scheduleReview(
+  curriculumId: string,
+  lessonId: string,
+  performance: 1 | 2 | 3 | 4 | 5
+): void {
+  const state = loadState();
+  const cp = state.progress.find((p) => p.curriculum_id === curriculumId);
+  if (!cp || !cp.lessons[lessonId]) return;
+
+  const progress = cp.lessons[lessonId];
+  const easeFactor = progress.ease_factor ?? 2.5;
+  const interval = progress.interval_days ?? 1;
+  const reviewCount = progress.review_count ?? 0;
+  const difficultItemsCount = progress.difficult_items?.length || 0;
+  const totalItems = progress.total_items || 1;
+  const accuracy = (progress.correct_items || 0) / totalItems;
+
+  let newEaseFactor = easeFactor;
+  let newInterval = interval;
+
+  const performanceModifier = accuracy < 0.5 ? -0.3 : accuracy < 0.7 ? -0.1 : 0;
+
+  if (performance >= 3) {
+    if (reviewCount === 0) {
+      newInterval = difficultItemsCount > 0 ? 1 : 3;
+    } else if (reviewCount === 1) {
+      newInterval = difficultItemsCount > 0 ? 3 : 6;
+    } else {
+      newInterval = Math.round(interval * (easeFactor + performanceModifier));
+    }
+    newEaseFactor = easeFactor + (0.1 - (5 - performance) * (0.08 + (5 - performance) * 0.02));
+  } else {
+    newInterval = 1;
+    newEaseFactor = Math.max(1.3, easeFactor - 0.2);
+  }
+
+  newEaseFactor = Math.max(1.3, Math.min(3.0, newEaseFactor));
+  newInterval = Math.max(1, Math.min(365, newInterval));
+
+  cp.lessons[lessonId] = {
+    ...progress,
+    ease_factor: newEaseFactor,
+    interval_days: newInterval,
+    review_count: reviewCount + 1,
+    last_review_date: new Date().toISOString(),
+    next_review_date: addDays(new Date().toISOString(), newInterval),
+  };
+
+  saveState(state);
+}
+
+export function getDueReviews(curriculumId: string): Array<{ lessonId: string; progress: LessonProgress }> {
+  const state = loadState();
+  const cp = state.progress.find((p) => p.curriculum_id === curriculumId);
+  if (!cp) return [];
+
+  const now = new Date().toISOString();
+  const due: Array<{ lessonId: string; progress: LessonProgress }> = [];
+
+  for (const [lessonId, progress] of Object.entries(cp.lessons)) {
+    if (progress.completed && progress.next_review_date && progress.next_review_date <= now) {
+      due.push({ lessonId, progress });
+    }
+  }
+
+  return due.sort((a, b) => {
+    const dateA = new Date(a.progress.next_review_date!).getTime();
+    const dateB = new Date(b.progress.next_review_date!).getTime();
+    return dateA - dateB;
+  });
+}
+
+export function getDueReviewsCount(curriculumId: string): number {
+  return getDueReviews(curriculumId).length;
+}
+
+export function getAllDueReviewsCount(): number {
+  const state = loadState();
+  let total = 0;
+  for (const curriculumId of state.curriculums.map((c) => c.id)) {
+    total += getDueReviewsCount(curriculumId);
+  }
+  return total;
+}
+
+export function getLessonDifficultItems(
+  curriculumId: string,
+  lessonId: string
+): ItemPerformance[] {
+  const state = loadState();
+  const cp = state.progress.find((p) => p.curriculum_id === curriculumId);
+  if (!cp || !cp.lessons[lessonId]) return [];
+  
+  return cp.lessons[lessonId].difficult_items || [];
+}
+
+export function clearDifficultItems(
+  curriculumId: string,
+  lessonId: string
+): void {
+  const state = loadState();
+  const cp = state.progress.find((p) => p.curriculum_id === curriculumId);
+  if (!cp || !cp.lessons[lessonId]) return;
+  
+  cp.lessons[lessonId] = {
+    ...cp.lessons[lessonId],
+    difficult_items: undefined,
+    incorrect_question_indices: undefined,
+    difficult_card_indices: undefined,
+  };
+  
   saveState(state);
 }
 
@@ -186,4 +378,50 @@ export function loadOpenTabs(curriculumId: string): OpenTabs | null {
   } catch {
     return null;
   }
+}
+
+export function getUnitProgress(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
+  const cp = progress.find((p) => progress.some((pr) => pr.curriculum_id === progress[0]?.curriculum_id));
+  const total = unit.lessons.length;
+  if (total === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  const state = loadState();
+  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
+  
+  if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
+  
+  const completed = unit.lessons.filter((lesson) => {
+    const lp = curriculumProgress?.lessons[lesson.id];
+    return lp?.completed === true;
+  }).length;
+  
+  return { completed, total, percentage: Math.round((completed / total) * 100) };
+}
+
+export function getModuleProgress(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
+  const state = loadState();
+  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
+  
+  const allLessons = module.units.flatMap((u) => u.lessons);
+  const total = allLessons.length;
+  if (total === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
+  
+  const completed = allLessons.filter((lesson) => {
+    const lp = curriculumProgress.lessons[lesson.id];
+    return lp?.completed === true;
+  }).length;
+  
+  return { completed, total, percentage: Math.round((completed / total) * 100) };
+}
+
+export function isUnitCompleted(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): boolean {
+  const prog = getUnitProgress(unit, progress);
+  return prog.total > 0 && prog.completed === prog.total;
+}
+
+export function isModuleCompleted(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): boolean {
+  const prog = getModuleProgress(module, progress);
+  return prog.total > 0 && prog.completed === prog.total;
 }

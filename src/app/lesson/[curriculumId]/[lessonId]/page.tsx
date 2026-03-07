@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
+import confetti from "canvas-confetti";
 import { loadState, completeLesson, getLessonProgress, setLastLesson } from "@/lib/store";
 import { LESSON_TYPE_CONFIG } from "@/lib/config";
 import { Button } from "@/components/ui/button";
@@ -8,6 +9,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
 import type {
   Lesson,
+  Curriculum,
   FlashcardContent,
   QuizContent,
   FillBlankContent,
@@ -15,6 +17,7 @@ import type {
   SpeechContent,
   ReadingContent,
   ListeningContent,
+  ItemPerformance,
 } from "@/types/curriculum";
 import type {
   WorkerMessage,
@@ -43,8 +46,10 @@ import {
   SpellCheck,
   Play,
   Gauge,
+  Sparkles,
 } from "lucide-react";
 import { dispatchStateUpdate } from "@/components/AppLayout";
+import { cn } from "@/lib/utils";
 
 // ── Whisper loader ───────────────────────────────────────
 async function loadWhisperModel(
@@ -78,6 +83,28 @@ async function loadWhisperModel(
     console.error("Failed to load Whisper model:", error);
     setModelLoading(false);
     throw error;
+  }
+}
+
+// ── Constants for Whisper chunking ───────────────────────
+const WHISPER_CHUNK_LENGTH_S = 25;
+const WHISPER_STRIDE_LENGTH_S = 2;
+
+// ── Whisper helper for chunked transcription ─────────────
+async function transcribeWithChunking(
+  audioUrl: string,
+  pipeline: any,
+): Promise<string> {
+  try {
+    const result = await pipeline(audioUrl, {
+      language: "english",
+      task: "transcribe",
+      chunk_length_s: WHISPER_CHUNK_LENGTH_S,
+      stride_length_s: WHISPER_STRIDE_LENGTH_S,
+    });
+    return result.text.trim();
+  } finally {
+    URL.revokeObjectURL(audioUrl);
   }
 }
 
@@ -131,18 +158,22 @@ export default function LessonPage() {
   const [step, setStep] = useState(0);
   const [done, setDone] = useState(false);
   const [alreadyComplete, setAlreadyComplete] = useState(false);
+  const [searchParams, setSearchParams] = useState<{ review?: string }>({});
+  const [nextLesson, setNextLesson] = useState<{ curriculumId: string; lessonId: string } | null>(null);
 
   // Flashcard state
   const [cardIdx, setCardIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledCardOrder, setShuffledCardOrder] = useState<number[]>([]);
+  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>([]);
 
   // Quiz / Reading state
   const [qIdx, setQIdx] = useState(0);
   const [selectedAns, setSelectedAns] = useState<number | null>(null);
   const [showExp, setShowExp] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
+  const [incorrectQuestionIndices, setIncorrectQuestionIndices] = useState<number[]>([]);
 
   // Fill blank state
   const [fbIdx, setFbIdx] = useState(0);
@@ -156,6 +187,24 @@ export default function LessonPage() {
   const [grammarChecked, setGrammarChecked] = useState(false);
   const [lastCheckedText, setLastCheckedText] = useState("");
   const [textModified, setTextModified] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [showPasteArea, setShowPasteArea] = useState(false);
+  const [pastedFeedback, setPastedFeedback] = useState("");
+  const [selectedAISource, setSelectedAISource] = useState("auto");
+  const [parsedFeedback, setParsedFeedback] = useState<{
+    naturalnessScore: number;
+    overallFeedback: string;
+    errors: Array<{
+      text: string;
+      suggestion: string;
+      explanation: string;
+    }>;
+    improvedVersion: string;
+    detectedFormat?: string;
+  } | null>(null);
+  const [parseError, setParseError] = useState("");
+  const [showRawFeedback, setShowRawFeedback] = useState(false);
+  const [feedbackSidebarOpen, setFeedbackSidebarOpen] = useState(false);
 
   // Speech state
   const [recording, setRecording] = useState(false);
@@ -229,6 +278,7 @@ export default function LessonPage() {
     if (foundLesson) {
       setLesson(foundLesson);
       setLastLesson(curriculumId, foundModuleId!, foundUnitId!, lessonId);
+      findNextLesson(curr, foundModuleId!, foundUnitId!, lessonId);
     }
     const p = getLessonProgress(curriculumId, lessonId);
     if (p?.completed) setAlreadyComplete(true);
@@ -237,8 +287,23 @@ export default function LessonPage() {
         setShowFirstTimeMessage(true);
       if (!localStorage.getItem("kokoro_model_loaded"))
         setShowKokoroFirstTimeMessage(true);
+      if (lesson?.type === "writing" && parsedFeedback) {
+        const saved = localStorage.getItem("feedback-sidebar-open");
+        setFeedbackSidebarOpen(saved !== "false");
+      }
     }
   }, [curriculumId, lessonId]);
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setSearchParams({ review: params.get("review") || undefined });
+  }, []);
+
+  useEffect(() => {
+    if (lesson?.type === "writing" && parsedFeedback) {
+      localStorage.setItem("feedback-sidebar-open", String(feedbackSidebarOpen));
+    }
+  }, [feedbackSidebarOpen, lesson, parsedFeedback]);
 
   // Pre-generate audio as soon as lesson loads (using Web Worker)
   useEffect(() => {
@@ -327,12 +392,99 @@ export default function LessonPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (done) {
+      confetti({
+        particleCount: 200,
+        spread: 120,
+        origin: { y: 0.6 },
+        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+      });
+    }
+  }, [done]);
+
   function markComplete() {
     if (!lesson) return;
-    completeLesson(curriculumId, lessonId, lesson.xp);
+    
+    let itemPerformance: ItemPerformance[] | undefined;
+    
+    if (lesson.type === "quiz" || lesson.type === "reading" || lesson.type === "listening") {
+      const content = lesson.content as QuizContent | ReadingContent | ListeningContent;
+      const questions = 'questions' in content ? content.questions : [];
+      itemPerformance = questions.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'question' as const,
+        correct: !incorrectQuestionIndices.includes(i),
+      }));
+    } else if (lesson.type === "fill_blank") {
+      const content = lesson.content as FillBlankContent;
+      itemPerformance = content.sentences.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'sentence' as const,
+        correct: !incorrectQuestionIndices.includes(i),
+      }));
+    } else if (lesson.type === "flashcard") {
+      const content = lesson.content as FlashcardContent;
+      itemPerformance = content.cards.map((_, i) => ({
+        itemIndex: i,
+        itemType: 'card' as const,
+        correct: !difficultCardIndices.includes(i),
+      }));
+    }
+    
+    completeLesson(curriculumId, lessonId, lesson.xp, itemPerformance);
     dispatchStateUpdate();
     toast(`+${lesson.xp} XP earned! 🎉`, "success");
     setDone(true);
+  }
+
+  function findNextLesson(
+    curriculum: Curriculum,
+    currentModuleId: string,
+    currentUnitId: string,
+    currentLessonId: string
+  ) {
+    for (let m = 0; m < curriculum.modules.length; m++) {
+      const module = curriculum.modules[m];
+      if (module.id === currentModuleId) {
+        for (let u = 0; u < module.units.length; u++) {
+          const unit = module.units[u];
+          if (unit.id === currentUnitId) {
+            const lessonIndex = unit.lessons.findIndex(
+              (l: { id: string }) => l.id === currentLessonId
+            );
+            if (lessonIndex < unit.lessons.length - 1) {
+              const nextLesson = unit.lessons[lessonIndex + 1];
+              setNextLesson({
+                curriculumId: curriculum.id,
+                lessonId: nextLesson.id,
+              });
+              return;
+            }
+            for (let nextUnitIdx = u + 1; nextUnitIdx < module.units.length; nextUnitIdx++) {
+              const nextUnit = module.units[nextUnitIdx];
+              if (nextUnit.lessons.length > 0) {
+                setNextLesson({
+                  curriculumId: curriculum.id,
+                  lessonId: nextUnit.lessons[0].id,
+                });
+                return;
+              }
+            }
+            for (let nextModuleIdx = m + 1; nextModuleIdx < curriculum.modules.length; nextModuleIdx++) {
+              const nextModule = curriculum.modules[nextModuleIdx];
+              if (nextModule.units.length > 0 && nextModule.units[0].lessons.length > 0) {
+                setNextLesson({
+                  curriculumId: curriculum.id,
+                  lessonId: nextModule.units[0].lessons[0].id,
+                });
+                return;
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   if (!lesson) return null;
@@ -340,24 +492,89 @@ export default function LessonPage() {
 
   // ── Completed Screen ─────────────────────────────────────
   if (done) {
+    const replayConfetti = () => {
+      confetti({
+        particleCount: 200,
+        spread: 120,
+        origin: { y: 0.6 },
+        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+      });
+    };
+
+    if (nextLesson) {
+      return (
+        <>
+          <div className="p-8 flex items-center justify-center min-h-[80vh]">
+            <div className="text-center max-w-sm">
+              <div className="text-6xl mb-4 relative">
+                <span className="relative z-10">🎉</span>
+              </div>
+              <h2 className="font-serif text-3xl font-bold mb-2">
+                Lesson Complete!
+              </h2>
+              <p className="text-neutral-500 mb-2">You earned</p>
+              <div className="text-4xl font-bold text-yellow-500 mb-8">
+                +{lesson.xp} XP
+              </div>
+              <button
+                onClick={replayConfetti}
+                className="text-2xl mb-4 hover:scale-125 transition-transform inline-block"
+                title="Play confetti again"
+              >
+                🎆
+              </button>
+              <p className="mb-6 text-neutral-600">
+                Ready to continue learning?
+              </p>
+              <div className="flex gap-3 justify-center">
+                <Button
+                  className="bg-green-600 hover:bg-green-700"
+                  onClick={() => router.push(`/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`)}
+                >
+                  Next Lesson <ChevronRight size={16} />
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
+                >
+                  {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      );
+    }
+
     return (
       <>
         <div className="p-8 flex items-center justify-center min-h-[80vh]">
           <div className="text-center max-w-sm">
-            <div className="text-6xl mb-4">🎉</div>
+            <div className="text-6xl mb-4 relative">
+              <span className="relative z-10">🎉</span>
+            </div>
             <h2 className="font-serif text-3xl font-bold mb-2">
-              Lesson Complete!
+              Curriculum Complete!
             </h2>
-            <p className="text-neutral-500 mb-2">You earned</p>
+            <p className="text-neutral-500 mb-6">
+              You've successfully completed all lessons in this curriculum. Amazing job! 🌟
+            </p>
             <div className="text-4xl font-bold text-yellow-500 mb-8">
               +{lesson.xp} XP
             </div>
+            <button
+              onClick={replayConfetti}
+              className="text-2xl mb-4 hover:scale-125 transition-transform inline-block"
+              title="Play confetti again"
+            >
+              🎆
+            </button>
             <div className="flex gap-3 justify-center">
               <Button
                 variant="outline"
-                onClick={() => router.push(`/curriculum/${curriculumId}`)}
+                onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
               >
-                Back to Curriculum
+                {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
               </Button>
               <Button onClick={() => router.push("/dashboard")}>
                 Dashboard
@@ -373,7 +590,7 @@ export default function LessonPage() {
   const Header = () => (
     <div className="border-b border-neutral-100 px-8 py-4 flex items-center gap-4 bg-white">
       <button
-        onClick={() => router.push(`/curriculum/${curriculumId}`)}
+        onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
         className="text-neutral-400 hover:text-neutral-700 transition-colors"
       >
         <ChevronLeft size={20} />
@@ -486,15 +703,28 @@ export default function LessonPage() {
                 Complete Lesson ✓
               </Button>
             ) : (
-              <Button
-                className="flex-1"
-                onClick={() => {
-                  setFlipped(false);
-                  setCardIdx(cardIdx + 1);
-                }}
-              >
-                Next <ChevronRight size={16} />
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  className="flex-1 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
+                  onClick={() => {
+                    setDifficultCardIndices(prev => [...prev, cardIndex]);
+                    setFlipped(false);
+                    setCardIdx(cardIdx + 1);
+                  }}
+                >
+                  Don't Know
+                </Button>
+                <Button
+                  className="flex-1 border-green-200 bg-green-50 text-green-700 hover:bg-green-100 hover:border-green-300"
+                  onClick={() => {
+                    setFlipped(false);
+                    setCardIdx(cardIdx + 1);
+                  }}
+                >
+                  Know It ✓
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -569,7 +799,11 @@ export default function LessonPage() {
                     if (!showExp) {
                       setSelectedAns(i);
                       setShowExp(true);
-                      if (isCorrect) setCorrectCount((c) => c + 1);
+                      if (isCorrect) {
+                        setCorrectCount((c) => c + 1);
+                      } else {
+                        setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                      }
                     }
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}
@@ -651,6 +885,9 @@ export default function LessonPage() {
                     if (!fbShowExp) {
                       setFbSelected(opt);
                       setFbShowExp(true);
+                      if (opt !== s.answer) {
+                        setIncorrectQuestionIndices(prev => [...prev, fbIdx]);
+                      }
                     }
                   }}
                   className={`px-4 py-3 rounded-xl border-2 transition-all font-medium ${cls}`}
@@ -719,12 +956,306 @@ export default function LessonPage() {
       }
     }
 
+    function copyPromptForAI() {
+      if (!writingText.trim()) return;
+      
+      const state = loadState();
+      const prompt = `You are an English learning assistant for Linguapath. Please analyze this student's writing:
+
+**Student's CEFR Level**: ${state.current_level}
+**Writing Task**: ${content.prompt}
+**Minimum Words**: ${content.min_words || "not specified"}
+
+**Student's Answer**:
+${writingText}
+
+Please provide:
+1. **Naturalness Score** (1-5 stars)
+2. **Overall Feedback** - Encouraging summary with 2-3 key improvement areas
+3. **Specific Errors** - List mistakes with:
+   - Original text snippet
+   - Suggested correction  
+   - Brief explanation of what's wrong
+4. **Improved Version** - A rewritten version that maintains the original meaning but sounds more natural
+
+Be encouraging and educational. Focus on clarity and naturalness for language learners at this level.`;
+
+      navigator.clipboard.writeText(prompt);
+      setPromptCopied(true);
+      toast("Prompt copied! Paste into Gemini, Claude, or ChatGPT", "success");
+    }
+
+    function parseFeedback() {
+      const text = pastedFeedback.trim();
+      
+      if (!text) {
+        setParseError("Please paste some feedback first");
+        return;
+      }
+
+      let detectedFormat = "";
+      let formatScore = 0;
+
+      // Extract naturalness score (multiple patterns)
+      let score = 0;
+      const scorePatterns = [
+        /Naturalness Score[:\s⭐]*([1-5])/i,
+        /Score[:\s]*([1-5])[:\s]/i,
+        /([1-5])[:\s⭐]*\/5/i,
+        /Naturalness Score:\s*\*\*([1-5])\s*\/\s*5/i,
+      ];
+      
+      for (const pattern of scorePatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          score = parseInt(match[1]);
+          break;
+        }
+      }
+
+      // Extract overall feedback
+      let overall = "";
+      const overallPatterns = [
+        /Overall Feedback[:\s]*([\s\S]*?)(?:Specific Errors|❌ Errors|📝 Specific Errors|🔍 Specific Errors|$)/i,
+        /💬 Overall Feedback[:\s]*([\s\S]*?)(?:🔍|##\s*\[|$)/i,
+        /🌼\s*\*\*Overall Feedback\*\*[:\s]*([\s\S]*?)(?:🔎|##\s*\[|$)/i,
+      ];
+      
+      for (const pattern of overallPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          overall = match[1].trim().replace(/\n+/g, ' ').replace(/\*\*/g, '');
+          break;
+        }
+      }
+
+      // Extract improved version (look for various patterns)
+      let improved = "";
+      const improvedPatterns = [
+        /Improved Version[:\s]*([\s\S]*?)$/i,
+        /✅ Improved Version[:\s]*([\s\S]*?)$/i,
+        /✨ Improved Version[:\s]*([\s\S]*?)$/i,
+        /Rewritten Version[:\s]*([\s\S]*?)$/i,
+        /Better Version[:\s]*([\s\S]*?)$/i,
+        /##\s*\d+\.?\s*✨?\s*\*\*?Improved Version\*\*?[:\s]*([\s\S]*?)(?:##|$)/i,
+      ];
+      
+      for (const pattern of improvedPatterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) {
+          improved = match[1].trim().replace(/^>\s*/gm, '').replace(/^-+\s*/gm, '');
+          break;
+        }
+      }
+
+      // Extract errors using multiple patterns - COMBINE ALL MATCHES
+      const errors: Array<{ text: string; suggestion: string; explanation: string }> = [];
+      
+      // If user selected Claude, try table pattern FIRST
+      if (selectedAISource === "claude") {
+        // Pattern: Markdown table format (Claude style) - FIXED to handle asterisks
+        // | # | *"original"* | *"suggestion"* | explanation |
+        const tablePattern = /\|\s*\d+\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*([^|\n]+)\|/g;
+        let match;
+        while ((match = tablePattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const explanation = match[3].trim();
+          
+          if (text_content && suggestion && !errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "Claude (table format)";
+          }
+        }
+        
+        if (errors.length === 0) {
+          setParseError("Claude table format not detected. Make sure to copy the entire table including the header row and all columns. The table should look like: | # | Original | Correction | Explanation |");
+          return;
+        }
+      }
+      
+      // If user selected ChatGPT, try label patterns FIRST
+      if (selectedAISource === "chatgpt") {
+        // Pattern: Numbered labels (ChatGPT style)
+        const numberedLabelPattern = /\*\*\d+\.\s*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        let match;
+        while ((match = numberedLabelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim();
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "ChatGPT (numbered labels)";
+          }
+        }
+        
+        // Pattern: Label-based (ChatGPT style)
+        const labelPattern = /\*\*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = labelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim().replace(/^["']|["']$/g, '');
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            detectedFormat = "ChatGPT (structured labels)";
+          }
+        }
+        
+        if (errors.length === 0) {
+          setParseError("ChatGPT format not detected. Make sure the response includes **Original:**, **Correction:**, and **Explanation:** sections.");
+          return;
+        }
+      }
+      
+      // For auto-detect or if no errors yet, try all patterns
+      if (selectedAISource === "auto" || errors.length === 0) {
+        // Pattern 1: "text" → "suggestion" - explanation (arrow format)
+        const errorPattern1 = /["'](.*?)["']\s*→\s*["'](.*?)["']\s*(?:-?\s*(.*?))(?=["']|$)/g;
+        let match;
+        while ((match = errorPattern1.exec(text)) !== null) {
+          errors.push({
+            text: match[1].trim(),
+            suggestion: match[2].trim(),
+            explanation: match[3]?.trim().replace(/^-\s*/, '') || ""
+          });
+          formatScore += 10;
+        }
+
+        // Pattern 2: Markdown table format (Claude style) - FIXED to handle asterisks
+        const tablePattern = /\|\s*\d+\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*\*?_?["']?([^|"*'\n_]+)["']?\*?_?\s*\|\s*([^|\n]+)\|/g;
+        while ((match = tablePattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '').replace(/^\*|\*$/g, '').replace(/^_+_$/g, '');
+          const explanation = match[3].trim();
+          
+          if (text_content && suggestion && !errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "Claude (table format)";
+          }
+        }
+
+        // Pattern 3: **text** -> **suggestion** (bold arrow format)
+        const errorPattern2 = /\*\*(.*?)\*\*\s*->\s*\*\*(.*?)\*\*/g;
+        while ((match = errorPattern2.exec(text)) !== null) {
+          errors.push({
+            text: match[1],
+            suggestion: match[2],
+            explanation: ""
+          });
+        }
+
+        // Pattern 4: "text" should be "suggestion"
+        const errorPattern3 = /["'](.*?)["']\s+should be\s+["'](.*?)["']/gi;
+        while ((match = errorPattern3.exec(text)) !== null) {
+          errors.push({
+            text: match[1],
+            suggestion: match[2],
+            explanation: ""
+          });
+        }
+
+        // Pattern 5: Label-based format (ChatGPT style)
+        const labelPattern = /\*\*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = labelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim().replace(/^["']|["']$/g, '');
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "ChatGPT (structured labels)";
+          }
+        }
+
+        // Pattern 6: Numbered list with Original/Correction/Explanation
+        const numberedLabelPattern = /\*\*\d+\.\s*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+        while ((match = numberedLabelPattern.exec(text)) !== null) {
+          const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+          const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+          const explanation = match[3].trim();
+          
+          if (!errors.find(e => e.text === text_content)) {
+            errors.push({
+              text: text_content,
+              suggestion: suggestion,
+              explanation: explanation
+            });
+            formatScore += 10;
+            if (!detectedFormat) detectedFormat = "ChatGPT (numbered labels)";
+          }
+        }
+      }
+
+      // Determine format based on patterns found
+      if (!detectedFormat && errors.length > 0) {
+        detectedFormat = "Standard (arrow format)";
+      }
+
+      // If we couldn't extract key information, show error but offer raw view
+      if (errors.length === 0 && !improved && !overall) {
+        setParseError("Couldn't parse the feedback automatically. But you can still view the raw AI response below!");
+        setParsedFeedback({
+          naturalnessScore: score,
+          overallFeedback: "",
+          errors: [],
+          improvedVersion: "",
+          detectedFormat: "Unknown"
+        });
+        setShowRawFeedback(true);
+        return;
+      }
+
+      // Set parsed feedback
+      setParsedFeedback({
+        naturalnessScore: score,
+        overallFeedback: overall,
+        errors: errors,
+        improvedVersion: improved,
+        detectedFormat: detectedFormat || "Mixed format"
+      });
+      
+       setParseError("");
+       setShowRawFeedback(false);
+       setShowPasteArea(false);
+       setPastedFeedback("");
+       setFeedbackSidebarOpen(true);
+       toast(`Feedback parsed successfully! (${detectedFormat || "Standard"})`, "success");
+     }
+
     const errorCount = grammarErrors.length;
 
     return (
       <>
         <Header />
-        <div className="p-8 max-w-2xl mx-auto">
+        <div className="flex min-h-[calc(100vh-80px)] p-8 gap-8">
+          <div className="flex-1 max-w-2xl">
           <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-5 mb-6">
             <div className="text-xs uppercase tracking-widest text-neutral-400 mb-2">
               Writing Prompt
@@ -746,32 +1277,166 @@ export default function LessonPage() {
             placeholder="Start writing here..."
             className="w-full min-h-56 border border-neutral-200 rounded-xl p-4 text-neutral-700 leading-relaxed resize-y outline-none focus:border-neutral-400 transition-colors font-sans text-sm"
           />
-          <div className="flex items-center justify-between mt-2 mb-4">
+          <div className="flex items-center justify-between mt-2 mb-4 gap-3">
             <span
               className={`text-sm ${wordCount >= minWords ? "text-green-600" : "text-neutral-400"}`}
             >
               {wordCount} words {minWords > 0 && `/ ${minWords} min`}
             </span>
-            <button
-              onClick={checkGrammar}
-              disabled={grammarChecking || !writingText.trim()}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
-                grammarChecking || !writingText.trim()
-                  ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
-                  : "border-blue-200 text-blue-600 hover:bg-blue-50"
-              }`}
-            >
-              {grammarChecking ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" /> Checking...
-                </>
-              ) : (
-                <>
-                  <SpellCheck size={14} /> Check Grammar
-                </>
-              )}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={checkGrammar}
+                disabled={grammarChecking || !writingText.trim()}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  grammarChecking || !writingText.trim()
+                    ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "border-blue-200 text-blue-600 hover:bg-blue-50"
+                }`}
+              >
+                {grammarChecking ? (
+                  <>
+                    <Loader2 size={14} className="animate-spin" /> Checking...
+                  </>
+                ) : (
+                  <>
+                    <SpellCheck size={14} /> Check Grammar
+                  </>
+                )}
+              </button>
+              <button
+                onClick={copyPromptForAI}
+                disabled={!writingText.trim()}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-all ${
+                  !writingText.trim()
+                    ? "border-neutral-200 text-neutral-400 cursor-not-allowed"
+                    : "border-purple-200 text-purple-600 hover:bg-purple-50"
+                }`}
+              >
+                <Sparkles size={14} /> Get AI Feedback
+              </button>
+            </div>
           </div>
+          {promptCopied && (
+            <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 size={15} className="text-purple-600" />
+                    <span className="text-sm font-medium text-purple-800">
+                      Prompt copied to clipboard!
+                    </span>
+                  </div>
+                  <p className="text-xs text-purple-700 mb-3">
+                    Paste it into your favorite AI chat, then come back and continue when done.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    <a
+                      href="https://gemini.google.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Gemini
+                    </a>
+                    <a
+                      href="https://claude.ai/new"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Claude
+                    </a>
+                    <a
+                      href="https://chatgpt.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open ChatGPT
+                    </a>
+                    <a
+                      href="https://chat.qwen.ai"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                    >
+                      <Play size={12} className="rotate-[-90deg]" />
+                      Open Qwen
+                    </a>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setPromptCopied(false)}
+                  className="text-purple-400 hover:text-purple-600 p-1"
+                  title="Close"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {!showPasteArea ? (
+                <button
+                  onClick={() => setShowPasteArea(true)}
+                  className="text-xs text-purple-700 hover:text-purple-900 hover:underline font-medium flex items-center gap-1"
+                >
+                  📋 Paste AI Feedback Here
+                </button>
+              ) : (
+                <div className="mt-3 pt-3 border-t border-purple-200">
+                  <div className="mb-2">
+                    <label className="text-xs font-medium text-purple-700 block mb-1">
+                      Which AI provided this feedback?
+                    </label>
+                    <select
+                      value={selectedAISource}
+                      onChange={(e) => setSelectedAISource(e.target.value)}
+                      className="text-sm border border-purple-200 rounded-lg px-3 py-1.5 bg-white text-purple-700 focus:outline-none focus:border-purple-400"
+                    >
+                      <option value="auto">Auto-detect (recommended)</option>
+                      <option value="claude">Claude (uses tables)</option>
+                      <option value="chatgpt">ChatGPT (uses labels)</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="qwen">Qwen</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <textarea
+                    value={pastedFeedback}
+                    onChange={(e) => setPastedFeedback(e.target.value)}
+                    placeholder="Paste the AI's response here... (includes score, errors, and improved version)"
+                    className="w-full h-32 p-2 text-sm rounded-lg border border-purple-200 bg-white focus:outline-none focus:border-purple-400"
+                  />
+                  {parseError && (
+                    <div className="mt-2 text-xs text-red-600 flex items-center gap-1">
+                      <AlertTriangle size={12} />
+                      {parseError}
+                    </div>
+                  )}
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={parseFeedback}
+                      className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
+                    >
+                      Parse Feedback
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowPasteArea(false);
+                        setPastedFeedback("");
+                        setParseError("");
+                      }}
+                      className="px-3 py-1.5 bg-white text-purple-700 text-xs font-medium rounded-lg border border-purple-200 hover:bg-purple-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {grammarChecked && textModified && (
             <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-center gap-2">
               <AlertTriangle size={15} className="text-amber-600" />
@@ -844,6 +1509,17 @@ export default function LessonPage() {
               </span>
             </div>
           )}
+          {parsedFeedback && !feedbackSidebarOpen && (
+            <div className="flex items-center justify-center mt-4">
+              <button
+                onClick={() => setFeedbackSidebarOpen(true)}
+                className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-colors font-medium shadow-lg hover:shadow-xl"
+              >
+                <Sparkles size={20} />
+                <span>Open AI Feedback Sidebar</span>
+              </button>
+            </div>
+          )}
           <Button
             className="w-full"
             disabled={minWords > 0 && wordCount < minWords}
@@ -851,6 +1527,165 @@ export default function LessonPage() {
           >
             Submit & Complete ✓
           </Button>
+          </div>
+          
+          {parsedFeedback && (
+            <div 
+              className={cn(
+                "fixed right-0 top-[80px] h-[calc(100vh-80px)] w-96 bg-white border-l border-neutral-200 shadow-2xl z-30 overflow-hidden transition-all duration-300 ease-in-out",
+                feedbackSidebarOpen ? "translate-x-0" : "translate-x-full"
+              )}
+            >
+              <div className="flex items-center justify-between p-4 border-b border-neutral-100 bg-purple-50">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={16} className="text-purple-600" />
+                  <div>
+                    <span className="text-sm font-semibold text-purple-800">
+                      AI Feedback (Parsed)
+                    </span>
+                    {parsedFeedback.detectedFormat && (
+                      <div className="text-xs text-purple-600 mt-0.5">
+                        {parsedFeedback.detectedFormat}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setShowRawFeedback(!showRawFeedback)}
+                    className="text-xs text-purple-600 hover:text-purple-900 px-2 py-1 hover:bg-purple-100 rounded transition-colors"
+                  >
+                    {showRawFeedback ? "Hide Raw" : "View Raw"}
+                  </button>
+                  <button
+                    onClick={() => setParsedFeedback(null)}
+                    className="text-xs text-purple-600 hover:text-purple-900 px-2 py-1 hover:bg-purple-100 rounded transition-colors"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    onClick={() => setFeedbackSidebarOpen(false)}
+                    className="text-neutral-400 hover:text-neutral-600 p-1 hover:bg-neutral-100 rounded transition-colors"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                </div>
+              </div>
+              
+              {showRawFeedback && pastedFeedback && (
+                <div className="p-4 bg-neutral-50 border-b border-neutral-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-neutral-600">Original AI Response</span>
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(pastedFeedback);
+                        toast("Raw feedback copied!", "success");
+                      }}
+                      className="text-xs text-purple-600 hover:underline"
+                    >
+                      Copy Raw
+                    </button>
+                  </div>
+                  <div className="bg-white border border-neutral-200 rounded-lg p-3 max-h-96 overflow-y-auto">
+                    <pre className="text-xs text-neutral-700 whitespace-pre-wrap font-sans">
+                      {pastedFeedback}
+                    </pre>
+                  </div>
+                </div>
+              )}
+              
+              <div className="p-4 bg-white space-y-4 overflow-y-auto h-[calc(100%-100px)]">
+                {parsedFeedback.naturalnessScore > 0 && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-neutral-700">Naturalness Score</span>
+                      <span className="text-lg font-bold text-purple-600">
+                        {parsedFeedback.naturalnessScore}/5
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <div
+                          key={star}
+                          className={`w-8 h-2 rounded-full ${
+                            star <= parsedFeedback.naturalnessScore
+                              ? "bg-purple-500"
+                              : "bg-neutral-200"
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {parsedFeedback.overallFeedback && (
+                  <div className="p-3 bg-neutral-50 rounded-lg">
+                    <p className="text-sm text-neutral-700">{parsedFeedback.overallFeedback}</p>
+                  </div>
+                )}
+                
+                {parsedFeedback.errors.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-medium text-neutral-700 mb-2">
+                      Suggestions ({parsedFeedback.errors.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {parsedFeedback.errors.map((err, i) => (
+                        <div key={i} className="p-3 border border-neutral-200 rounded-lg">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded font-mono">
+                              {err.text || "General"}
+                            </span>
+                          </div>
+                          {err.explanation && (
+                            <p className="text-sm text-neutral-700 mb-1">{err.explanation}</p>
+                          )}
+                          {err.suggestion && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-neutral-500">→</span>
+                              <button
+                                onClick={() => {
+                                  if (err.text) {
+                                    setWritingText(writingText.replace(err.text, err.suggestion));
+                                    setTextModified(true);
+                                  }
+                                }}
+                                className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded hover:bg-green-100 transition-colors font-medium"
+                              >
+                                {err.suggestion}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {parsedFeedback.improvedVersion && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="text-sm font-medium text-neutral-700">Improved Version</h4>
+                      <button
+                        onClick={() => {
+                          setWritingText(parsedFeedback.improvedVersion);
+                          setTextModified(true);
+                        }}
+                        className="text-xs bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1 rounded hover:bg-purple-100 transition-colors font-medium"
+                      >
+                        Use This Version
+                      </button>
+                    </div>
+                    <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-neutral-700 leading-relaxed">
+                        {parsedFeedback.improvedVersion}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </>
     );
@@ -945,12 +1780,7 @@ export default function LessonPage() {
               setTranscriptionStatus("processing");
               try {
                 const audioUrl = URL.createObjectURL(blob);
-                const result = await whisperPipelineRef.current(audioUrl, {
-                  language: "english",
-                  task: "transcribe",
-                });
-                URL.revokeObjectURL(audioUrl);
-                const transcript = result.text.trim();
+                const transcript = await transcribeWithChunking(audioUrl, whisperPipelineRef.current);
                 setAllTranscripts(transcript);
                 setDetectedKeywords(
                   keywords.filter((kw) =>
@@ -1299,6 +2129,9 @@ export default function LessonPage() {
                         if (!showExp) {
                           setSelectedAns(i);
                           setShowExp(true);
+                          if (!isCorrect) {
+                            setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                          }
                         }
                       }}
                       className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}
@@ -1596,7 +2429,11 @@ export default function LessonPage() {
                     if (!showExp) {
                       setSelectedAns(i);
                       setShowExp(true);
-                      if (isCorrect) setCorrectCount((c) => c + 1);
+                      if (isCorrect) {
+                        setCorrectCount((c) => c + 1);
+                      } else {
+                        setIncorrectQuestionIndices(prev => [...prev, qIdx]);
+                      }
                     }
                   }}
                   className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm ${cls}`}

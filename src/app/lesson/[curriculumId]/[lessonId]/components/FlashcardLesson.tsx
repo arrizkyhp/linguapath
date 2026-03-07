@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { ChevronLeft, ChevronRight, RotateCcw, Shuffle, List } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
+import { LessonHeader } from './LessonHeader';
+import { LESSON_TYPE_CONFIG } from '@/lib/config';
 import type { Lesson, FlashcardContent } from '@/types/curriculum';
 
 type FlashcardLessonProps = {

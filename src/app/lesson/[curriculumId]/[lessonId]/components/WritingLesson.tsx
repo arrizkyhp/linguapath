@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, AlertTriangle, Loader2, Sparkles, SpellCheck, Play } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Loader2, Sparkles, SpellCheck, Play, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { loadState } from '@/lib/store';
 import type { Lesson, WritingContent } from '@/types/curriculum';
@@ -46,9 +46,10 @@ export function WritingLesson({
   } | null>(null);
   const [parseError, setParseError] = useState('');
   const [showRawFeedback, setShowRawFeedback] = useState(false);
+  const [feedbackSidebarOpen, setFeedbackSidebarOpen] = useState(false);
 
   const content = lesson.content as WritingContent;
-  const wordCount = (writingText as string).trim().split(/\s+/).filter(Boolean).length;
+  const wordCount = writingText.trim().split(/\s+/).filter(Boolean).length;
   const minWords = content.min_words ?? 0;
   
   const state = loadState();
@@ -77,7 +78,7 @@ export function WritingLesson({
   }
 
   function copyPromptForAI() {
-    if (!(writingText as string).trim()) return;
+    if (!writingText.trim()) return;
     
     const prompt = `You are an English learning assistant for Linguapath. Please analyze this student's writing:
 
@@ -119,6 +120,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
       /Naturalness Score[:\s⭐]*([1-5])/i,
       /Score[:\s]*([1-5])[:\s]/i,
       /([1-5])[:\s⭐]*\/5/i,
+      /Naturalness Score:\s*\*\*([1-5])\s*\/\s*5/i,
     ];
     
     for (const pattern of scorePatterns) {
@@ -132,6 +134,8 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
     let overall = '';
     const overallPatterns = [
       /Overall Feedback[:\s]*([\s\S]*?)(?:Specific Errors|❌ Errors|📝 Specific Errors|🔍 Specific Errors|$)/i,
+      /💬 Overall Feedback[:\s]*([\s\S]*?)(?:🔍|##\s*\[|$)/i,
+      /🌼\s*\*\*Overall Feedback\*\*[:\s]*([\s\S]*?)(?:🔎|##\s*\[|$)/i,
     ];
     
     for (const pattern of overallPatterns) {
@@ -147,6 +151,9 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
       /Improved Version[:\s]*([\s\S]*?)$/i,
       /✅ Improved Version[:\s]*([\s\S]*?)$/i,
       /✨ Improved Version[:\s]*([\s\S]*?)$/i,
+      /Rewritten Version[:\s]*([\s\S]*?)$/i,
+      /Better Version[:\s]*([\s\S]*?)$/i,
+      /##\s*\d+\.?\s*✨?\s*\*\*?Improved Version\*\*?[:\s]*([\s\S]*?)(?:##|$)/i,
     ];
     
     for (const pattern of improvedPatterns) {
@@ -255,6 +262,24 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
         }
       }
 
+      const errorPattern2 = /\*\*(.*?)\*\*\s*->\s*\*\*(.*?)\*\*/g;
+      while ((match = errorPattern2.exec(text)) !== null) {
+        errors.push({
+          text: match[1],
+          suggestion: match[2],
+          explanation: ""
+        });
+      }
+
+      const errorPattern3 = /["'](.*?)["']\s+should be\s+["'](.*?)["']/gi;
+      while ((match = errorPattern3.exec(text)) !== null) {
+        errors.push({
+          text: match[1],
+          suggestion: match[2],
+          explanation: ""
+        });
+      }
+
       const labelPattern = /\*\*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
       while ((match = labelPattern.exec(text)) !== null) {
         const text_content = match[1].trim().replace(/^["']|["']$/g, '');
@@ -269,6 +294,23 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
           });
           formatScore += 10;
           if (!detectedFormat) detectedFormat = 'ChatGPT (structured labels)';
+        }
+      }
+
+      const numberedLabelPattern = /\*\*\d+\.\s*Original[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Correction[:\s]*\*\*\s*>?\s*([^\n]+?)\s*\n*\*\*Explanation[:\s]*\*\*\s*([^\n]+)/gi;
+      while ((match = numberedLabelPattern.exec(text)) !== null) {
+        const text_content = match[1].trim().replace(/^["']|["']$/g, '');
+        const suggestion = match[2].trim().replace(/^["']|["']$/g, '');
+        const explanation = match[3].trim();
+        
+        if (!errors.find(e => e.text === text_content)) {
+          errors.push({
+            text: text_content,
+            suggestion: suggestion,
+            explanation: explanation
+          });
+          formatScore += 10;
+          if (!detectedFormat) detectedFormat = 'ChatGPT (numbered labels)';
         }
       }
     }
@@ -302,6 +344,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
     setShowRawFeedback(false);
     setShowPasteArea(false);
     setPastedFeedback('');
+    setFeedbackSidebarOpen(true);
   }
 
   const errorCount = grammarErrors.length;
@@ -382,7 +425,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                 <p className="text-xs text-purple-700 mb-3">
                   Paste it into your favorite AI chat, then come back and continue when done.
                 </p>
-                <div className="flex gap-2 mt-3">
+                <div className="flex flex-wrap gap-2 mb-3">
                   <a
                     href="https://gemini.google.com"
                     target="_blank"
@@ -400,6 +443,24 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                   >
                     <Play size={12} className="rotate-[-90deg]" />
                     Open Claude
+                  </a>
+                  <a
+                    href="https://chatgpt.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                  >
+                    <Play size={12} className="rotate-[-90deg]" />
+                    Open ChatGPT
+                  </a>
+                  <a
+                    href="https://qwenlm.ai"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white border border-purple-200 text-xs font-medium text-purple-700 hover:bg-purple-100 transition-colors"
+                  >
+                    <Play size={12} className="rotate-[-90deg]" />
+                    Open Qwen
                   </a>
                   <button
                     onClick={() => {
@@ -541,62 +602,61 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
             </span>
           </div>
         )}
-        {parsedFeedback && (
-          <div className="mb-6 border border-purple-200 rounded-xl overflow-hidden">
-            <div className="px-4 py-3 bg-purple-50 border-b border-purple-100 flex items-center justify-between">
+        {parsedFeedback && !feedbackSidebarOpen && (
+          <div className="mb-6 bg-purple-50 border border-purple-200 rounded-xl px-4 py-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sparkles size={15} className="text-purple-600" />
-                <div>
-                  <span className="text-sm font-medium text-purple-800">
-                    AI Feedback (Parsed)
-                  </span>
-                  {parsedFeedback.detectedFormat && (
-                    <div className="text-xs text-purple-600 mt-0.5">
-                      {parsedFeedback.detectedFormat}
-                    </div>
-                  )}
-                </div>
+                <span className="text-sm font-medium text-purple-800">
+                  AI Feedback Ready
+                </span>
               </div>
-              <div className="flex gap-2">
-                {pastedFeedback && (
-                  <button
-                    onClick={() => setShowRawFeedback(!showRawFeedback)}
-                    className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
-                  >
-                    {showRawFeedback ? 'Hide Raw' : 'View Raw'}
-                  </button>
-                )}
-                <button
-                  onClick={() => setParsedFeedback(null)}
-                  className="text-xs text-purple-600 hover:text-purple-800 hover:underline"
-                >
-                  Clear
-                </button>
-              </div>
+              <button
+                onClick={() => setFeedbackSidebarOpen(true)}
+                className="px-3 py-1.5 bg-purple-600 text-white text-xs font-medium rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Open AI Feedback Sidebar →
+              </button>
             </div>
-            
-            {showRawFeedback && pastedFeedback && (
-              <div className="px-4 py-3 bg-neutral-50 border-b border-neutral-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-neutral-600">Original AI Response</span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText(pastedFeedback);
-                    }}
-                    className="text-xs text-purple-600 hover:underline"
-                  >
-                    Copy Raw
-                  </button>
+          </div>
+        )}
+        <Button
+          className="w-full"
+          disabled={minWords > 0 && wordCount < minWords}
+          onClick={onComplete}
+        >
+          Submit & Complete ✓
+        </Button>
+      </div>
+      
+      {/* AI Feedback Sidebar */}
+      <div 
+        className={`fixed right-0 top-0 h-full w-96 bg-white border-l border-neutral-200 shadow-xl transform transition-transform duration-300 z-50 ${
+          feedbackSidebarOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        <div className="h-full flex flex-col">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
+            <div className="flex items-center gap-2">
+              <Sparkles size={18} className="text-purple-600" />
+              <span className="font-semibold text-purple-800">AI Feedback</span>
+            </div>
+            <button
+              onClick={() => setFeedbackSidebarOpen(false)}
+              className="text-neutral-400 hover:text-neutral-600 p-1"
+            >
+              <X size={20} />
+            </button>
+          </div>
+          
+          {parsedFeedback && (
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {parsedFeedback.detectedFormat && (
+                <div className="text-xs text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                  {parsedFeedback.detectedFormat}
                 </div>
-                <div className="bg-white border border-neutral-200 rounded-lg p-3 max-h-96 overflow-y-auto">
-                  <pre className="text-xs text-neutral-700 whitespace-pre-wrap font-sans">
-                    {pastedFeedback}
-                  </pre>
-                </div>
-              </div>
-            )}
-            
-            <div className="p-4 bg-white space-y-4">
+              )}
+              
               {parsedFeedback.naturalnessScore > 0 && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
@@ -609,7 +669,7 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                     {[1, 2, 3, 4, 5].map((star) => (
                       <div
                         key={star}
-                        className={`w-8 h-2 rounded-full ${
+                        className={`flex-1 h-2 rounded-full ${
                           star <= parsedFeedback.naturalnessScore
                             ? 'bg-purple-500'
                             : 'bg-neutral-200'
@@ -623,6 +683,25 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
               {parsedFeedback.overallFeedback && (
                 <div className="p-3 bg-neutral-50 rounded-lg">
                   <p className="text-sm text-neutral-700">{parsedFeedback.overallFeedback}</p>
+                </div>
+              )}
+              
+              {showRawFeedback && pastedFeedback && (
+                <div className="border border-neutral-200 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-neutral-50 border-b border-neutral-100">
+                    <span className="text-xs font-medium text-neutral-600">Original AI Response</span>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(pastedFeedback)}
+                      className="text-xs text-purple-600 hover:underline"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="p-3 max-h-64 overflow-y-auto">
+                    <pre className="text-xs text-neutral-700 whitespace-pre-wrap font-sans">
+                      {pastedFeedback}
+                    </pre>
+                  </div>
                 </div>
               )}
               
@@ -686,15 +765,8 @@ Be encouraging and educational. Focus on clarity and naturalness for language le
                 </div>
               )}
             </div>
-          </div>
-        )}
-        <Button
-          className="w-full"
-          disabled={minWords > 0 && wordCount < minWords}
-          onClick={onComplete}
-        >
-          Submit & Complete ✓
-        </Button>
+          )}
+        </div>
       </div>
     </div>
   );

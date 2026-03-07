@@ -33,6 +33,11 @@ export default function ReviewsPage() {
   const [currentReviewIndex, setCurrentReviewIndex] = useState(0);
   const [showPerformanceRating, setShowPerformanceRating] = useState(false);
   const [searchParams, setSearchParams] = useState<{ review?: string; completed?: string }>({});
+  const [sessionStartCount, setSessionStartCount] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const saved = sessionStorage.getItem("reviews_session_start");
+    return saved ? parseInt(saved, 10) : null;
+  });
   const justCompleted = useRef(false);
 
   useEffect(() => {
@@ -57,7 +62,7 @@ export default function ReviewsPage() {
 
   useEffect(() => {
     if (!state) return;
-    if (justCompleted.current) return; // Don't recalculate right after completing a review
+    if (justCompleted.current) return;
 
     const dueReviews: ReviewItem[] = [];
 
@@ -85,11 +90,20 @@ export default function ReviewsPage() {
       }
     }
 
-    setReviews(dueReviews.sort((a, b) => 
+    const sortedReviews = dueReviews.sort((a, b) => 
       new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
-    ));
+    );
+    
+    setReviews(sortedReviews);
+    
+    if (sortedReviews.length > 0 && sessionStartCount === null) {
+      const newCount = sortedReviews.length;
+      setSessionStartCount(newCount);
+      sessionStorage.setItem("reviews_session_start", newCount.toString());
+    }
+    
     justCompleted.current = false;
-  }, [state]);
+  }, [state, sessionStartCount]);
 
   function findLesson(curriculum: Curriculum, lessonId: string): Lesson | null {
     for (const module of curriculum.modules) {
@@ -109,22 +123,28 @@ export default function ReviewsPage() {
     scheduleReview(currentReview.curriculumId, currentReview.lessonId, performance);
     dispatchStateUpdate();
 
-    router.replace("/reviews");
-
     justCompleted.current = true;
 
-    const nextIndex = currentReviewIndex + 1;
-    if (nextIndex < reviews.length) {
-      setCurrentReviewIndex(nextIndex);
-      setShowPerformanceRating(false);
-    } else {
+    const updatedReviews = reviews.filter(
+      (_, index) => index !== currentReviewIndex
+    );
+
+    if (updatedReviews.length === 0) {
+      sessionStorage.removeItem("reviews_session_start");
+      setSessionStartCount(null);
+      setReviews([]);
       confetti({
         particleCount: 150,
         spread: 100,
         origin: { y: 0.6 },
         colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
       });
-      setReviews([]);
+      router.replace("/reviews");
+    } else {
+      const nextIndex = Math.min(currentReviewIndex, updatedReviews.length - 1);
+      setCurrentReviewIndex(nextIndex);
+      setReviews(updatedReviews);
+      setShowPerformanceRating(false);
     }
   }
 
@@ -153,7 +173,8 @@ export default function ReviewsPage() {
   }
 
   const currentReview = reviews[currentReviewIndex];
-  const progress = ((currentReviewIndex + 1) / reviews.length) * 100;
+  const completedCount = sessionStartCount ? sessionStartCount - reviews.length : 0;
+  const progress = sessionStartCount ? ((completedCount + 1) / sessionStartCount) * 100 : 0;
 
   return (
     <div className="p-8 max-w-3xl mx-auto">
@@ -170,7 +191,7 @@ export default function ReviewsPage() {
       <div className="mb-6">
         <div className="flex items-center justify-between text-sm mb-2">
           <span className="text-neutral-500">
-            Review {currentReviewIndex + 1} of {reviews.length}
+            Review {sessionStartCount ? sessionStartCount - reviews.length + 1 : 1} of {sessionStartCount || reviews.length}
           </span>
           <span className="text-neutral-500">
             {Math.round(progress)}% complete

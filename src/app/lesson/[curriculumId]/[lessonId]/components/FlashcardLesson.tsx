@@ -99,9 +99,9 @@ export function FlashcardLesson({
             key={cardIdx}
             custom={direction}
             variants={cardVariants}
-            initial={isInitial ? false : "enter"}
+            initial={isInitial ? undefined : "enter"}
             animate="center"
-            exit={isInitial ? false : "exit"}
+            exit={isInitial ? undefined : "exit"}
             transition={{ duration: 0.15, ease: "easeOut" }}
             onClick={() => setFlipped(!flipped)}
             className="absolute inset-0 cursor-pointer bg-white border border-neutral-200 rounded-2xl p-10 text-center shadow-sm hover:shadow-md transition-all flex flex-col items-center justify-center"

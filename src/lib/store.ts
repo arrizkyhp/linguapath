@@ -1,12 +1,54 @@
 import type { AppState, CEFRLevel, Curriculum, CurriculumProgress, LessonProgress, ItemPerformance } from "@/types/curriculum";
 import { sampleCurriculum } from "./sampleData";
+import { 
+  initDB,
+  loadStateFromDB,
+  saveStateToDB,
+  updateStateInDB,
+  setLevelInDB,
+  completeOnboardingInDB,
+  addCurriculumToDB,
+  removeCurriculumFromDB,
+  getCurriculumProgressFromDB,
+  completeLessonInDB,
+  updateItemPerformanceInDB,
+  scheduleReviewInDB,
+  getDueReviewsFromDB,
+  getDueReviewsCountFromDB,
+  getAllDueReviewsCountFromDB,
+  getLessonDifficultItemsFromDB,
+  clearDifficultItemsFromDB,
+  getCurriculumProgressPercentageFromDB,
+  isLessonUnlockedFromDB,
+  clearAllDataFromDB,
+  exportStateFromDB,
+  importStateFromDB,
+  saveOpenTabsToDB,
+  loadOpenTabsFromDB,
+  getUnitProgressFromDB,
+  getModuleProgressFromDB,
+  isUnitCompletedFromDB,
+  isModuleCompletedFromDB,
+  getStorageSizeFromDB,
+  resetProgressInDB,
+  addDays as dbAddDays,
+} from "./db";
 
 const STORAGE_KEY = "linguapath_state";
 const TABS_KEY = "linguapath_open_tabs";
 
+let dbInitialized = false;
+
 export interface OpenTabs {
   openModules: string[];
   openUnits: string[];
+}
+
+export async function ensureDB(): Promise<void> {
+  if (!dbInitialized) {
+    await initDB();
+    dbInitialized = true;
+  }
 }
 
 export function getDefaultState(): AppState {
@@ -41,6 +83,279 @@ export function saveState(state: AppState): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
+
+export async function loadStateAsync(): Promise<AppState> {
+  await ensureDB();
+  const state = await loadStateFromDB();
+  return state ?? getDefaultState();
+}
+
+export async function saveStateAsync(state: AppState): Promise<void> {
+  await ensureDB();
+  await saveStateToDB(state);
+}
+
+export async function updateStateAsync(partial: Partial<AppState>): Promise<AppState> {
+  await ensureDB();
+  return await updateStateInDB(partial);
+}
+
+export async function setLevelAsync(level: CEFRLevel): Promise<void> {
+  await ensureDB();
+  await setLevelInDB(level);
+}
+
+export async function completeOnboardingAsync(level: CEFRLevel): Promise<void> {
+  await ensureDB();
+  await completeOnboardingInDB(level);
+}
+
+export async function setLastLessonAsync(
+  curriculumId: string,
+  moduleId: string,
+  unitId: string,
+  lessonId: string
+): Promise<void> {
+  await ensureDB();
+  const state = await loadStateFromDB();
+  if (!state) return;
+  state.last_lesson = {
+    curriculum_id: curriculumId,
+    module_id: moduleId,
+    unit_id: unitId,
+    lesson_id: lessonId,
+  };
+  await saveStateToDB(state);
+}
+
+export async function addCurriculumAsync(curriculum: Curriculum): Promise<void> {
+  await ensureDB();
+  await addCurriculumToDB(curriculum);
+}
+
+export async function removeCurriculumAsync(id: string): Promise<void> {
+  await ensureDB();
+  await removeCurriculumFromDB(id);
+}
+
+export async function getLessonProgressAsync(
+  curriculumId: string,
+  lessonId: string
+): Promise<LessonProgress | null> {
+  await ensureDB();
+  return await getCurriculumProgressFromDB(curriculumId, lessonId);
+}
+
+export async function completeLessonAsync(
+  curriculumId: string,
+  lessonId: string,
+  xp: number,
+  itemPerformance?: ItemPerformance[]
+): Promise<void> {
+  await ensureDB();
+  await completeLessonInDB(curriculumId, lessonId, xp, itemPerformance);
+}
+
+export async function updateItemPerformanceAsync(
+  curriculumId: string,
+  lessonId: string,
+  itemPerformance: ItemPerformance[]
+): Promise<void> {
+  await ensureDB();
+  await updateItemPerformanceInDB(curriculumId, lessonId, itemPerformance);
+}
+
+export async function scheduleReviewAsync(
+  curriculumId: string,
+  lessonId: string,
+  performance: 1 | 2 | 3 | 4 | 5
+): Promise<void> {
+  await ensureDB();
+  await scheduleReviewInDB(curriculumId, lessonId, performance);
+}
+
+export async function getDueReviewsAsync(curriculumId: string): Promise<Array<{ lessonId: string; progress: LessonProgress }>> {
+  await ensureDB();
+  return await getDueReviewsFromDB(curriculumId);
+}
+
+export async function getDueReviewsCountAsync(curriculumId: string): Promise<number> {
+  await ensureDB();
+  return await getDueReviewsCountFromDB(curriculumId);
+}
+
+export async function getAllDueReviewsCountAsync(): Promise<number> {
+  await ensureDB();
+  return await getAllDueReviewsCountFromDB();
+}
+
+export async function getLessonDifficultItemsAsync(
+  curriculumId: string,
+  lessonId: string
+): Promise<ItemPerformance[]> {
+  await ensureDB();
+  return await getLessonDifficultItemsFromDB(curriculumId, lessonId);
+}
+
+export async function clearDifficultItemsAsync(
+  curriculumId: string,
+  lessonId: string
+): Promise<void> {
+  await ensureDB();
+  await clearDifficultItemsFromDB(curriculumId, lessonId);
+}
+
+export async function getCurriculumProgressAsync(
+  curriculum: Curriculum,
+  progress: CurriculumProgress[]
+): Promise<number> {
+  await ensureDB();
+  return await getCurriculumProgressPercentageFromDB(curriculum, progress);
+}
+
+export async function isLessonUnlockedAsync(
+  curriculumId: string,
+  lessonIndex: number,
+  allLessonIds: string[]
+): Promise<boolean> {
+  await ensureDB();
+  return await isLessonUnlockedFromDB(curriculumId, lessonIndex, allLessonIds);
+}
+
+export async function clearAllDataAsync(): Promise<void> {
+  await ensureDB();
+  await clearAllDataFromDB();
+}
+
+export function clearAllData(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(STORAGE_KEY);
+}
+
+export async function exportStateAsync(): Promise<string | null> {
+  await ensureDB();
+  return await exportStateFromDB();
+}
+
+export function exportState(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw) as AppState;
+    const exportData = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      state: state,
+    };
+    return JSON.stringify(exportData, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+export async function importStateAsync(jsonString: string): Promise<{ success: boolean; error?: string }> {
+  await ensureDB();
+  return await importStateFromDB(jsonString);
+}
+
+export function importState(jsonString: string): { success: boolean; error?: string } {
+  if (typeof window === "undefined") return { success: false, error: "Not in browser environment" };
+  try {
+    const data = JSON.parse(jsonString);
+    if (!data.version || !data.state) {
+      return { success: false, error: "Invalid export format: missing version or state" };
+    }
+    if (data.version !== 1) {
+      return { success: false, error: `Unsupported export version: ${data.version}` };
+    }
+    const state = data.state as AppState;
+    if (!state.onboarding_complete || !state.current_level || !Array.isArray(state.curriculums)) {
+      return { success: false, error: "Invalid state structure" };
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: `Failed to parse JSON: ${e instanceof Error ? e.message : "Unknown error"}` };
+  }
+}
+
+export async function saveOpenTabsAsync(curriculumId: string, tabs: OpenTabs): Promise<void> {
+  await ensureDB();
+  await saveOpenTabsToDB(curriculumId, tabs);
+}
+
+export async function loadOpenTabsAsync(curriculumId: string): Promise<OpenTabs | null> {
+  await ensureDB();
+  return await loadOpenTabsFromDB(curriculumId);
+}
+
+export function saveOpenTabs(curriculumId: string, tabs: OpenTabs): void {
+  if (typeof window === "undefined") return;
+  try {
+    const stored = localStorage.getItem(TABS_KEY);
+    const all = stored ? JSON.parse(stored) : {};
+    all[curriculumId] = tabs;
+    localStorage.setItem(TABS_KEY, JSON.stringify(all));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function loadOpenTabs(curriculumId: string): OpenTabs | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = localStorage.getItem(TABS_KEY);
+    if (!stored) return null;
+    const all = JSON.parse(stored);
+    return all[curriculumId] || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getUnitProgressAsync(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): Promise<{ completed: number; total: number; percentage: number }> {
+  await ensureDB();
+  return await getUnitProgressFromDB(unit, progress);
+}
+
+export async function getModuleProgressAsync(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): Promise<{ completed: number; total: number; percentage: number }> {
+  await ensureDB();
+  return await getModuleProgressFromDB(module, progress);
+}
+
+export async function isUnitCompletedAsync(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): Promise<boolean> {
+  await ensureDB();
+  return await isUnitCompletedFromDB(unit, progress);
+}
+
+export async function isModuleCompletedAsync(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): Promise<boolean> {
+  await ensureDB();
+  return await isModuleCompletedFromDB(module, progress);
+}
+
+export async function getStorageSizeAsync(): Promise<string> {
+  await ensureDB();
+  return await getStorageSizeFromDB();
+}
+
+export function getStorageSize(): string {
+  if (typeof window === "undefined") return "0 KB";
+  const raw = localStorage.getItem(STORAGE_KEY) ?? "";
+  const bytes = new Blob([raw]).size;
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KB`;
+}
+
+export async function resetProgressAsync(): Promise<AppState> {
+  await ensureDB();
+  return await resetProgressInDB();
+}
+
+export const addDays = dbAddDays;
+
+// Synchronous wrappers for backward compatibility (uses localStorage)
+// Use async versions for IndexedDB access
 
 export function updateState(partial: Partial<AppState>): AppState {
   const current = loadState();
@@ -198,12 +513,6 @@ function mergeItemPerformance(
   return Array.from(map.values());
 }
 
-export function addDays(dateString: string, days: number): string {
-  const date = new Date(dateString);
-  date.setDate(date.getDate() + days);
-  return date.toISOString();
-}
-
 export function scheduleReview(
   curriculumId: string,
   lessonId: string,
@@ -343,50 +652,13 @@ export function isLessonUnlocked(
   return prev?.completed === true;
 }
 
-export function clearAllData(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(STORAGE_KEY);
-}
-
-export function getStorageSize(): string {
-  if (typeof window === "undefined") return "0 KB";
-  const raw = localStorage.getItem(STORAGE_KEY) ?? "";
-  const bytes = new Blob([raw]).size;
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KB`;
-}
-
-export function saveOpenTabs(curriculumId: string, tabs: OpenTabs): void {
-  if (typeof window === "undefined") return;
-  try {
-    const stored = localStorage.getItem(TABS_KEY);
-    const all = stored ? JSON.parse(stored) : {};
-    all[curriculumId] = tabs;
-    localStorage.setItem(TABS_KEY, JSON.stringify(all));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-export function loadOpenTabs(curriculumId: string): OpenTabs | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const stored = localStorage.getItem(TABS_KEY);
-    if (!stored) return null;
-    const all = JSON.parse(stored);
-    return all[curriculumId] || null;
-  } catch {
-    return null;
-  }
-}
-
-export function getUnitProgress(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
-  const cp = progress.find((p) => progress.some((pr) => pr.curriculum_id === progress[0]?.curriculum_id));
+export function getUnitProgress(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[], curriculumId?: string): { completed: number; total: number; percentage: number } {
   const total = unit.lessons.length;
   if (total === 0) return { completed: 0, total: 0, percentage: 0 };
   
-  const state = loadState();
-  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
+  const curriculumProgress = curriculumId 
+    ? progress.find((p) => p.curriculum_id === curriculumId)
+    : progress[0];
   
   if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
   
@@ -398,13 +670,14 @@ export function getUnitProgress(unit: { lessons: { id: string }[] }, progress: C
   return { completed, total, percentage: Math.round((completed / total) * 100) };
 }
 
-export function getModuleProgress(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): { completed: number; total: number; percentage: number } {
-  const state = loadState();
-  const curriculumProgress = state.progress.find((p) => p.curriculum_id === state.last_lesson?.curriculum_id) || progress[0];
-  
+export function getModuleProgress(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[], curriculumId?: string): { completed: number; total: number; percentage: number } {
   const allLessons = module.units.flatMap((u) => u.lessons);
   const total = allLessons.length;
   if (total === 0) return { completed: 0, total: 0, percentage: 0 };
+  
+  const curriculumProgress = curriculumId 
+    ? progress.find((p) => p.curriculum_id === curriculumId)
+    : progress[0];
   
   if (!curriculumProgress) return { completed: 0, total, percentage: 0 };
   
@@ -416,50 +689,12 @@ export function getModuleProgress(module: { units: { lessons: { id: string }[] }
   return { completed, total, percentage: Math.round((completed / total) * 100) };
 }
 
-export function isUnitCompleted(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[]): boolean {
-  const prog = getUnitProgress(unit, progress);
+export function isUnitCompleted(unit: { lessons: { id: string }[] }, progress: CurriculumProgress[], curriculumId?: string): boolean {
+  const prog = getUnitProgress(unit, progress, curriculumId);
   return prog.total > 0 && prog.completed === prog.total;
 }
 
-export function isModuleCompleted(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[]): boolean {
-  const prog = getModuleProgress(module, progress);
+export function isModuleCompleted(module: { units: { lessons: { id: string }[] }[] }, progress: CurriculumProgress[], curriculumId?: string): boolean {
+  const prog = getModuleProgress(module, progress, curriculumId);
   return prog.total > 0 && prog.completed === prog.total;
-}
-
-export function exportState(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const state = JSON.parse(raw) as AppState;
-    const exportData = {
-      version: 1,
-      exported_at: new Date().toISOString(),
-      state: state,
-    };
-    return JSON.stringify(exportData, null, 2);
-  } catch {
-    return null;
-  }
-}
-
-export function importState(jsonString: string): { success: boolean; error?: string } {
-  if (typeof window === "undefined") return { success: false, error: "Not in browser environment" };
-  try {
-    const data = JSON.parse(jsonString);
-    if (!data.version || !data.state) {
-      return { success: false, error: "Invalid export format: missing version or state" };
-    }
-    if (data.version !== 1) {
-      return { success: false, error: `Unsupported export version: ${data.version}` };
-    }
-    const state = data.state as AppState;
-    if (!state.onboarding_complete || !state.current_level || !Array.isArray(state.curriculums)) {
-      return { success: false, error: "Invalid state structure" };
-    }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: `Failed to parse JSON: ${e instanceof Error ? e.message : "Unknown error"}` };
-  }
 }

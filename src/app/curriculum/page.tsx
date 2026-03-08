@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, getCurriculumProgress } from "@/lib/store"
+import { loadStateAsync, getCurriculumProgressAsync, loadState, getCurriculumProgress } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,10 +14,16 @@ export default function CurriculumPage() {
   const [state, setState] = useState<AppState | null>(null)
 
   useEffect(() => {
-    const s = loadState()
-    if (!s.onboarding_complete) { router.push("/onboarding"); return }
-    setState(s)
-    const handler = () => setState(loadState())
+    async function load() {
+      const s = await loadStateAsync()
+      if (!s.onboarding_complete) { router.push("/onboarding"); return }
+      setState(s)
+    }
+    load()
+    const handler = () => {
+      const s = loadState()
+      if (s) setState(s)
+    }
     window.addEventListener("linguapath-state-update", handler)
     return () => window.removeEventListener("linguapath-state-update", handler)
   }, [router])

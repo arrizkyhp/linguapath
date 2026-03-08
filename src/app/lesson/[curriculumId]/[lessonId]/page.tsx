@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import confetti from "canvas-confetti";
-import { loadState, completeLesson, getLessonProgress, setLastLesson } from "@/lib/store";
+import { loadStateAsync, completeLessonAsync, getLessonProgressAsync, setLastLessonAsync, loadState, setLastLesson } from "@/lib/store";
 import { LESSON_TYPE_CONFIG } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -264,42 +264,45 @@ export default function LessonPage() {
   const kokoroWorkerRef = useRef<Worker | null>(null);
 
   useEffect(() => {
-    const s = loadState();
-    const curr = s.curriculums.find((c) => c.id === curriculumId);
-    if (!curr) return;
-    setCurrTitle(curr.title);
-    let foundLesson: Lesson | null = null;
-    let foundModuleId: string | null = null;
-    let foundUnitId: string | null = null;
-    for (const m of curr.modules) {
-      for (const u of m.units) {
-        const l = u.lessons.find((lesson) => lesson.id === lessonId);
-        if (l) {
-          foundLesson = l;
-          foundModuleId = m.id;
-          foundUnitId = u.id;
-          break;
+    async function loadLessonData() {
+      const s = await loadStateAsync();
+      const curr = s.curriculums.find((c) => c.id === curriculumId);
+      if (!curr) return;
+      setCurrTitle(curr.title);
+      let foundLesson: Lesson | null = null;
+      let foundModuleId: string | null = null;
+      let foundUnitId: string | null = null;
+      for (const m of curr.modules) {
+        for (const u of m.units) {
+          const l = u.lessons.find((lesson) => lesson.id === lessonId);
+          if (l) {
+            foundLesson = l;
+            foundModuleId = m.id;
+            foundUnitId = u.id;
+            break;
+          }
+        }
+        if (foundLesson) break;
+      }
+      if (foundLesson && foundModuleId && foundUnitId) {
+        setLesson(foundLesson);
+        await setLastLessonAsync(curriculumId, foundModuleId, foundUnitId, lessonId);
+        findNextLesson(curr, foundModuleId, foundUnitId, lessonId);
+      }
+      const p = await getLessonProgressAsync(curriculumId, lessonId);
+      if (p?.completed) setAlreadyComplete(true);
+      if (typeof window !== "undefined") {
+        if (!localStorage.getItem("whisper_model_loaded"))
+          setShowFirstTimeMessage(true);
+        if (!localStorage.getItem("kokoro_model_loaded"))
+          setShowKokoroFirstTimeMessage(true);
+        if (lesson?.type === "writing" && parsedFeedback) {
+          const saved = localStorage.getItem("feedback-sidebar-open");
+          setFeedbackSidebarOpen(saved !== "false");
         }
       }
-      if (foundLesson) break;
     }
-    if (foundLesson) {
-      setLesson(foundLesson);
-      setLastLesson(curriculumId, foundModuleId!, foundUnitId!, lessonId);
-      findNextLesson(curr, foundModuleId!, foundUnitId!, lessonId);
-    }
-    const p = getLessonProgress(curriculumId, lessonId);
-    if (p?.completed) setAlreadyComplete(true);
-    if (typeof window !== "undefined") {
-      if (!localStorage.getItem("whisper_model_loaded"))
-        setShowFirstTimeMessage(true);
-      if (!localStorage.getItem("kokoro_model_loaded"))
-        setShowKokoroFirstTimeMessage(true);
-      if (lesson?.type === "writing" && parsedFeedback) {
-        const saved = localStorage.getItem("feedback-sidebar-open");
-        setFeedbackSidebarOpen(saved !== "false");
-      }
-    }
+    loadLessonData();
   }, [curriculumId, lessonId]);
   
   useEffect(() => {
@@ -411,7 +414,7 @@ export default function LessonPage() {
     }
   }, [done]);
 
-  function markComplete() {
+  async function markComplete() {
     if (!lesson) return;
     
     let itemPerformance: ItemPerformance[] | undefined;
@@ -440,7 +443,7 @@ export default function LessonPage() {
       }));
     }
     
-    completeLesson(curriculumId, lessonId, lesson.xp, itemPerformance);
+    await completeLessonAsync(curriculumId, lessonId, lesson.xp, itemPerformance);
     dispatchStateUpdate();
     toast(`+${lesson.xp} XP earned! 🎉`, "success");
     setDone(true);

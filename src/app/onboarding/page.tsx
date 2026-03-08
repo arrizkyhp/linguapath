@@ -3,7 +3,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { completeOnboarding } from "@/lib/store"
+import { completeOnboardingAsync } from "@/lib/store"
 import { LEVEL_CONFIG, LEVEL_ORDER } from "@/lib/config"
 import { placementQuestions } from "@/lib/sampleData"
 import type { CEFRLevel } from "@/types/curriculum"
@@ -47,8 +47,8 @@ export default function OnboardingPage() {
     }
   }
 
-  function finish(level: CEFRLevel) {
-    completeOnboarding(level)
+  async function finish(level: CEFRLevel) {
+    await completeOnboardingAsync(level)
     router.push("/dashboard")
   }
 

@@ -20,7 +20,8 @@ Open [http://localhost:3000](http://localhost:3000)
 - **shadcn/ui**
 - **TanStack Query**
 - **pnpm**
-- **localStorage** (no backend needed)
+- **IndexedDB** (via Dexie.js) — async storage with 50MB+ capacity
+- **localStorage** fallback (legacy support)
 
 ### AI & ML
 
@@ -62,13 +63,31 @@ Open [http://localhost:3000](http://localhost:3000)
 - ✅ **JSON Validator** — Schema validation with clear error messages before import
 - 📤 **Export Progress** — Download your progress as JSON backup
 - 📥 **Import Backup** — Restore from previously exported backup
-- 💾 **Storage Monitoring** — View localStorage usage
+- 💾 **IndexedDB Storage** — Async storage with 50MB+ capacity (via Dexie.js)
+- 🔀 **Auto-Migration** — Seamless one-time migration from localStorage
 
 ### Settings
 
 - ⚙️ **Level Configuration** — Change CEFR level anytime
 - 🗑️ **Reset Progress** — Clear lesson completions and XP
 - 🔴 **Clear All Data** — Delete everything and restart onboarding
+
+---
+
+## Data Storage & Migration
+
+All user data is stored **locally in your browser** using **IndexedDB** (via Dexie.js):
+
+- **50MB+ capacity** — 10x more than localStorage
+- **Async operations** — No UI blocking
+- **Automatic migration** — Existing localStorage data is migrated on first load
+
+### Backup Your Progress
+
+We recommend **exporting your progress regularly** (Settings → Export Progress) to prevent data loss from:
+- Browser data clearing
+- Browser updates
+- Device changes
 
 ## Curriculum JSON Schema
 

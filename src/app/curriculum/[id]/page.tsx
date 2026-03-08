@@ -2,11 +2,15 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
+  loadStateAsync,
+  getLessonProgressAsync,
+  saveOpenTabsAsync,
+  loadOpenTabsAsync,
+  isUnitCompletedAsync,
+  isModuleCompletedAsync,
   loadState,
   getLessonProgress,
-  isLessonUnlocked,
   saveOpenTabs,
-  loadOpenTabs,
   isUnitCompleted,
   isModuleCompleted,
 } from "@/lib/store";
@@ -30,22 +34,25 @@ export default function CurriculumDetailPage() {
   const [openUnits, setOpenUnits] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    const s = loadState();
-    if (!s.onboarding_complete) {
-      router.push("/onboarding");
-      return;
+    async function load() {
+      const s = await loadStateAsync();
+      if (!s.onboarding_complete) {
+        router.push("/onboarding");
+        return;
+      }
+      setState(s);
+      const curr = s.curriculums.find((c) => c.id === id);
+      const saved = await loadOpenTabsAsync(id);
+      if (saved && saved.openModules.length > 0) {
+        setOpenModules(new Set(saved.openModules));
+        setOpenUnits(new Set(saved.openUnits));
+      } else if (curr?.modules[0]) {
+        setOpenModules(new Set([curr.modules[0].id]));
+        if (curr.modules[0].units[0])
+          setOpenUnits(new Set([curr.modules[0].units[0].id]));
+      }
     }
-    setState(s);
-    const curr = s.curriculums.find((c) => c.id === id);
-    const saved = loadOpenTabs(id);
-    if (saved && saved.openModules.length > 0) {
-      setOpenModules(new Set(saved.openModules));
-      setOpenUnits(new Set(saved.openUnits));
-    } else if (curr?.modules[0]) {
-      setOpenModules(new Set([curr.modules[0].id]));
-      if (curr.modules[0].units[0])
-        setOpenUnits(new Set([curr.modules[0].units[0].id]));
-    }
+    load()
   }, [router, id]);
 
   if (!state) return null;
@@ -61,7 +68,7 @@ export default function CurriculumDetailPage() {
   );
   const allLessonIds = allLessons.map((l) => l.id);
 
-  function toggleModule(mid: string) {
+  async function toggleModule(mid: string) {
     setOpenModules((prev) => {
       const n = new Set(prev);
       n.has(mid) ? n.delete(mid) : n.add(mid);
@@ -71,8 +78,13 @@ export default function CurriculumDetailPage() {
       });
       return n;
     });
+    await saveOpenTabsAsync(id, {
+      openModules: Array.from(openModules),
+      openUnits: Array.from(openUnits),
+    });
   }
-  function toggleUnit(uid: string) {
+  
+  async function toggleUnit(uid: string) {
     setOpenUnits((prev) => {
       const n = new Set(prev);
       n.has(uid) ? n.delete(uid) : n.add(uid);
@@ -81,6 +93,10 @@ export default function CurriculumDetailPage() {
         openUnits: Array.from(n),
       });
       return n;
+    });
+    await saveOpenTabsAsync(id, {
+      openModules: Array.from(openModules),
+      openUnits: Array.from(openUnits),
     });
   }
 
@@ -115,175 +131,165 @@ export default function CurriculumDetailPage() {
       {/* Modules */}
       <div className="space-y-3">
         {curriculum.modules.map((mod, mi) => {
-          const moduleCompleted = isModuleCompleted(mod, state.progress);
           const moduleProgress = mod.units.flatMap((u) => u.lessons).length;
-          const completedLessons = mod.units
-            .flatMap((u) => u.lessons)
-            .filter((l) => {
-              const cp = state.progress.find(
-                (p) => p.curriculum_id === curriculum.id,
-              );
-              return cp?.lessons[l.id]?.completed;
-            }).length;
 
           return (
-            <div key={mod.id}>
-              {/* Module Header */}
-              <button
-                onClick={() => toggleModule(mod.id)}
-                className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border border-neutral-200 hover:border-neutral-300 transition-colors text-left"
-              >
-                <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                    moduleCompleted
-                      ? "bg-green-100 text-green-700"
-                      : "bg-neutral-100 text-neutral-600"
-                  }`}
+              <div key={mod.id}>
+                {/* Module Header */}
+                <button
+                  onClick={() => toggleModule(mod.id)}
+                  className="w-full flex items-center gap-3 p-4 bg-white rounded-xl border border-neutral-200 hover:border-neutral-300 transition-colors text-left"
                 >
-                  {moduleCompleted ? <CheckCircle2 size={18} /> : mi + 1}
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold">{mod.title}</span>
-                    {moduleCompleted && (
-                      <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
-                        Completed
-                      </Badge>
-                    )}
+                  <div
+                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold flex-shrink-0 ${
+                      isModuleCompleted(mod, state.progress, curriculum.id)
+                        ? "bg-green-100 text-green-700"
+                        : "bg-neutral-100 text-neutral-600"
+                    }`}
+                  >
+                    {isModuleCompleted(mod, state.progress, curriculum.id) ? <CheckCircle2 size={18} /> : mi + 1}
                   </div>
-                  {mod.description && (
-                    <div className="text-xs text-neutral-500 mt-0.5">
-                      {mod.description}
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold">{mod.title}</span>
+                      {isModuleCompleted(mod, state.progress, curriculum.id) && (
+                        <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                          Completed
+                        </Badge>
+                      )}
                     </div>
-                  )}
-                  <div className="text-xs text-neutral-400 mt-1">
-                    {mod.units.length} units · {completedLessons}/
-                    {moduleProgress} lessons
-                  </div>
-                </div>
-                {openModules.has(mod.id) ? (
-                  <ChevronDown size={18} className="text-neutral-400" />
-                ) : (
-                  <ChevronRight size={18} className="text-neutral-400" />
-                )}
-              </button>
-
-              {/* Units */}
-              {openModules.has(mod.id) && (
-                <div className="ml-4 mt-2 space-y-2">
-                  {mod.units.map((unit) => {
-                    const unitCompleted = isUnitCompleted(unit, state.progress);
-
-                    return (
-                      <div key={unit.id}>
-                        {/* Unit Header */}
-                        <button
-                          onClick={() => toggleUnit(unit.id)}
-                          className="w-full flex items-center gap-3 p-3 bg-neutral-50 rounded-lg border border-neutral-100 hover:bg-white transition-colors text-left"
-                        >
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-sm">
-                                {unit.title}
-                              </span>
-                              {unitCompleted && (
-                                <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
-                                  Completed
-                                </Badge>
-                              )}
-                            </div>
-                            <div className="text-xs text-neutral-400">
-                              {unit.lessons.length} lessons
-                            </div>
-                          </div>
-                          {openUnits.has(unit.id) ? (
-                            <ChevronDown
-                              size={15}
-                              className="text-neutral-300"
-                            />
-                          ) : (
-                            <ChevronRight
-                              size={15}
-                              className="text-neutral-300"
-                            />
-                          )}
-                        </button>
-
-                        {/* Lessons */}
-                        {openUnits.has(unit.id) && (
-                          <div className="ml-4 mt-1 space-y-1">
-                            {unit.lessons.map((lesson, li) => {
-                              const globalIdx = allLessonIds.indexOf(lesson.id);
-                              const unlocked = isLessonUnlocked(
-                                curriculum.id,
-                                globalIdx,
-                                allLessonIds,
-                              );
-                              const progress = getLessonProgress(
-                                curriculum.id,
-                                lesson.id,
-                              );
-                              const completed = progress?.completed === true;
-                              const typeCfg = LESSON_TYPE_CONFIG[lesson.type];
-
-                              return (
-                                <button
-                                  key={lesson.id}
-                                  disabled={!unlocked}
-                                  onClick={() =>
-                                    unlocked &&
-                                    router.push(
-                                      `/lesson/${curriculum.id}/${lesson.id}`,
-                                    )
-                                  }
-                                  className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
-                                    completed
-                                      ? "bg-green-50 border-green-100"
-                                      : unlocked
-                                        ? "bg-white border-neutral-100 hover:border-neutral-200 hover:shadow-sm"
-                                        : "bg-neutral-50 border-neutral-100 opacity-50 cursor-not-allowed"
-                                  }`}
-                                >
-                                  <span className="text-base">
-                                    {typeCfg.icon}
-                                  </span>
-                                  <div className="flex-1 min-w-0">
-                                    <div
-                                      className={`text-sm font-medium truncate ${completed ? "text-green-700" : "text-neutral-700"}`}
-                                    >
-                                      {lesson.title}
-                                    </div>
-                                    <div className="text-xs text-neutral-400">
-                                      {typeCfg.label} · {lesson.xp} XP
-                                    </div>
-                                  </div>
-                                  {completed ? (
-                                    <CheckCircle2
-                                      size={16}
-                                      className="text-green-500 flex-shrink-0"
-                                    />
-                                  ) : unlocked ? (
-                                    <Circle
-                                      size={16}
-                                      className="text-neutral-200 flex-shrink-0"
-                                    />
-                                  ) : (
-                                    <Lock
-                                      size={14}
-                                      className="text-neutral-300 flex-shrink-0"
-                                    />
-                                  )}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
+                    {mod.description && (
+                      <div className="text-xs text-neutral-500 mt-0.5">
+                        {mod.description}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                    )}
+                    <div className="text-xs text-neutral-400 mt-1">
+                      {mod.units.length} units · {mod.units.flatMap((u) => u.lessons).filter((l) => {
+                        const cp = state.progress.find((p) => p.curriculum_id === curriculum.id);
+                        return cp?.lessons[l.id]?.completed;
+                      }).length}/{moduleProgress} lessons
+                    </div>
+                  </div>
+                  {openModules.has(mod.id) ? (
+                    <ChevronDown size={18} className="text-neutral-400" />
+                  ) : (
+                    <ChevronRight size={18} className="text-neutral-400" />
+                  )}
+                </button>
+
+                {/* Units */}
+                {openModules.has(mod.id) && (
+                  <div className="ml-4 mt-2 space-y-2">
+                    {mod.units.map((unit) => {
+                      const unitCompleted = isUnitCompleted(unit, state.progress, curriculum.id);
+
+                      return (
+                        <div key={unit.id}>
+                          {/* Unit Header */}
+                          <button
+                            onClick={() => toggleUnit(unit.id)}
+                            className="w-full flex items-center gap-3 p-3 bg-neutral-50 rounded-lg border border-neutral-100 hover:bg-white transition-colors text-left"
+                          >
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm">
+                                  {unit.title}
+                                </span>
+                                {unitCompleted && (
+                                  <Badge className="bg-green-100 text-green-700 border-green-200 text-xs">
+                                    Completed
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="text-xs text-neutral-400">
+                                {unit.lessons.length} lessons
+                              </div>
+                            </div>
+                            {openUnits.has(unit.id) ? (
+                              <ChevronDown
+                                size={15}
+                                className="text-neutral-300"
+                              />
+                            ) : (
+                              <ChevronRight
+                                size={15}
+                                className="text-neutral-300"
+                              />
+                            )}
+                          </button>
+
+                          {/* Lessons */}
+                          {openUnits.has(unit.id) && (
+                            <div className="ml-4 mt-1 space-y-1">
+                              {unit.lessons.map((lesson, li) => {
+                                const globalIdx = allLessonIds.indexOf(lesson.id);
+                                const cp = state.progress.find((p) => p.curriculum_id === curriculum.id);
+                                const progress = cp?.lessons[lesson.id];
+                                const completed = progress?.completed === true;
+                                // First lesson always unlocked, otherwise previous lesson must be completed
+                                const prevLessonId = globalIdx > 0 ? allLessonIds[globalIdx - 1] : null;
+                                const prevCompleted = prevLessonId ? cp?.lessons[prevLessonId]?.completed === true : true;
+                                const unlocked = globalIdx === 0 || completed || prevCompleted;
+                                const typeCfg = LESSON_TYPE_CONFIG[lesson.type];
+
+                                return (
+                                  <button
+                                    key={lesson.id}
+                                    disabled={!unlocked}
+                                    onClick={() =>
+                                      unlocked &&
+                                      router.push(
+                                        `/lesson/${curriculum.id}/${lesson.id}`,
+                                      )
+                                    }
+                                    className={`w-full flex items-center gap-3 p-3 rounded-lg border text-left transition-all ${
+                                      completed
+                                        ? "bg-green-50 border-green-100"
+                                        : unlocked
+                                          ? "bg-white border-neutral-100 hover:border-neutral-200 hover:shadow-sm"
+                                          : "bg-neutral-50 border-neutral-100 opacity-50 cursor-not-allowed"
+                                    }`}
+                                  >
+                                    <span className="text-base">
+                                      {typeCfg.icon}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                      <div
+                                        className={`text-sm font-medium truncate ${completed ? "text-green-700" : "text-neutral-700"}`}
+                                      >
+                                        {lesson.title}
+                                      </div>
+                                      <div className="text-xs text-neutral-400">
+                                        {typeCfg.label} · {lesson.xp} XP
+                                      </div>
+                                    </div>
+                                    {completed ? (
+                                      <CheckCircle2
+                                        size={16}
+                                        className="text-green-500 flex-shrink-0"
+                                      />
+                                    ) : unlocked ? (
+                                      <Circle
+                                        size={16}
+                                        className="text-neutral-200 flex-shrink-0"
+                                      />
+                                    ) : (
+                                      <Lock
+                                        size={14}
+                                        className="text-neutral-300 flex-shrink-0"
+                                      />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
           );
         })}
       </div>

@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, saveState, clearAllData, getStorageSize, exportState, importState } from "@/lib/store"
+import { loadState, saveState, clearAllData, getStorageSize, exportState, importState, getStorageSizeAsync, exportStateAsync, importStateAsync, resetProgressAsync, clearAllDataAsync } from "@/lib/store"
 import { LEVEL_CONFIG, LEVEL_ORDER } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,10 +21,10 @@ export default function SettingsPage() {
     const s = loadState()
     if (!s.onboarding_complete) { router.push("/onboarding"); return }
     setState(s)
-    setStorageSize(getStorageSize())
+    getStorageSizeAsync().then(setStorageSize)
   }, [router])
 
-  function changeLevel(level: CEFRLevel) {
+  async function changeLevel(level: CEFRLevel) {
     if (!state) return
     const updated = { ...state, current_level: level }
     saveState(updated)
@@ -33,23 +33,23 @@ export default function SettingsPage() {
     toast(`Level changed to ${level}`, "success")
   }
 
-  function resetProgress() {
+  async function resetProgress() {
     if (!state) return
-    const updated = { ...state, progress: [], total_xp: 0, streak_days: 0, last_lesson: null }
-    saveState(updated)
-    setState(updated)
+    await resetProgressAsync()
+    const s = loadState()
+    setState(s)
     dispatchStateUpdate()
     toast("Progress reset", "info")
   }
 
-  function handleClearAll() {
+  async function handleClearAll() {
     if (!confirmClear) { setConfirmClear(true); return }
-    clearAllData()
+    await clearAllDataAsync()
     router.push("/onboarding")
   }
 
-  function handleExport() {
-    const exported = exportState()
+  async function handleExport() {
+    const exported = await exportStateAsync()
     if (!exported) {
       toast("Failed to export data", "error")
       return
@@ -70,20 +70,21 @@ export default function SettingsPage() {
     fileInputRef.current?.click()
   }
 
-  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const content = event.target?.result as string
-      const result = importState(content)
+      const result = await importStateAsync(content)
       if (result.success) {
         toast("Progress imported successfully", "success")
         const s = loadState()
         setState(s)
         dispatchStateUpdate()
-        setStorageSize(getStorageSize())
+        const size = await getStorageSizeAsync()
+        setStorageSize(size)
       } else {
         toast(result.error || "Failed to import", "error")
       }

@@ -1,16 +1,27 @@
 "use client"
 import { useEffect, useState } from "react"
 import Sidebar from "@/components/Sidebar"
-import { loadState } from "@/lib/store"
+import { loadStateAsync, ensureDB, loadState } from "@/lib/store"
 import type { AppState } from "@/types/curriculum"
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState | null>(null)
   const [minimized, setMinimized] = useState(false)
+  const [initialized, setInitialized] = useState(false)
 
   useEffect(() => {
-    setState(loadState())
-    const handler = () => setState(loadState())
+    async function init() {
+      await ensureDB()
+      const s = await loadStateAsync()
+      setState(s)
+      setInitialized(true)
+    }
+    init()
+    
+    const handler = () => {
+      const s = loadState()
+      if (s) setState(s)
+    }
     window.addEventListener("linguapath-state-update", handler)
     return () => window.removeEventListener("linguapath-state-update", handler)
   }, [])
@@ -26,7 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     localStorage.setItem("sidebar-minimized", String(minimized))
   }, [minimized])
 
-  if (!state) return null
+  if (!initialized || !state) return null
 
   return (
     <div className="flex min-h-screen bg-neutral-50">

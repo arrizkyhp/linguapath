@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, getCurriculumProgress, getAllDueReviewsCount } from "@/lib/store"
+import { loadStateAsync, getCurriculumProgressAsync, getAllDueReviewsCountAsync, loadState, getCurriculumProgress } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,12 +21,23 @@ export default function DashboardPage() {
   const router = useRouter()
   const [state, setState] = useState<AppState | null>(null)
   const [todayChallenge] = useState(() => DAILY_CHALLENGES[new Date().getDay() % DAILY_CHALLENGES.length])
+  const [dueReviewsCount, setDueReviewsCount] = useState(0)
 
   useEffect(() => {
-    const s = loadState()
-    if (!s.onboarding_complete) { router.push("/onboarding"); return }
-    setState(s)
-    const handler = () => setState(loadState())
+    async function load() {
+      const s = await loadStateAsync()
+      if (!s.onboarding_complete) { router.push("/onboarding"); return }
+      setState(s)
+      
+      const count = await getAllDueReviewsCountAsync()
+      setDueReviewsCount(count)
+    }
+    load()
+    
+    const handler = () => {
+      const s = loadState()
+      if (s) setState(s)
+    }
     window.addEventListener("linguapath-state-update", handler)
     return () => window.removeEventListener("linguapath-state-update", handler)
   }, [router])
@@ -37,7 +48,6 @@ export default function DashboardPage() {
   const totalLessonsCompleted = state.progress.reduce(
     (acc, cp) => acc + Object.values(cp.lessons).filter((l) => l.completed).length, 0
   )
-  const dueReviewsCount = getAllDueReviewsCount()
 
   // Find continue lesson
   let continueCurriculum = state.curriculums[0]

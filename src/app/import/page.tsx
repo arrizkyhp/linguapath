@@ -1,7 +1,7 @@
 "use client"
 import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, addCurriculum, removeCurriculum } from "@/lib/store"
+import { loadStateAsync, addCurriculumAsync, removeCurriculumAsync, loadState, addCurriculum, removeCurriculum } from "@/lib/store"
 import { LEVEL_CONFIG } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,9 +23,12 @@ export default function ImportPage() {
   const [parsed, setParsed] = useState<CurriculumFile | null>(null)
 
   useEffect(() => {
-    const s = loadState()
-    if (!s.onboarding_complete) { router.push("/onboarding"); return }
-    setState(s)
+    async function load() {
+      const s = await loadStateAsync()
+      if (!s.onboarding_complete) { router.push("/onboarding"); return }
+      setState(s)
+    }
+    load()
   }, [router])
 
   function validateCurriculum(data: unknown): data is CurriculumFile {
@@ -62,20 +65,22 @@ export default function ImportPage() {
     reader.readAsText(file)
   }
 
-  function handleImport() {
+  async function handleImport() {
     if (!parsed) return
-    addCurriculum(parsed.curriculum)
+    await addCurriculumAsync(parsed.curriculum)
     dispatchStateUpdate()
-    setState(loadState())
+    const s = await loadStateAsync()
+    setState(s)
     toast(`"${parsed.curriculum.title}" imported successfully!`, "success")
     setParsed(null)
     setParseStatus("idle")
   }
 
-  function handleDelete(id: string, title: string) {
-    removeCurriculum(id)
+  async function handleDelete(id: string, title: string) {
+    await removeCurriculumAsync(id)
     dispatchStateUpdate()
-    setState(loadState())
+    const s = await loadStateAsync()
+    setState(s)
     toast(`"${title}" removed`, "info")
   }
 
@@ -126,118 +131,70 @@ export default function ImportPage() {
                 <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
                 <div>
                   <div className="font-medium text-red-700 text-sm">Invalid file</div>
-                  <div className="text-red-600 text-xs mt-1">{parseError}</div>
+                  <div className="text-red-600 text-sm">{parseError}</div>
                 </div>
               </div>
             )}
 
             {parseStatus === "valid" && parsed && (
-              <div className="mt-4 bg-green-50 border border-green-100 rounded-xl p-4">
-                <div className="flex items-start gap-3 mb-4">
+              <div className="mt-4 flex items-center justify-between bg-green-50 border border-green-100 rounded-xl p-4">
+                <div className="flex items-start gap-3">
                   <CheckCircle2 size={18} className="text-green-500 flex-shrink-0 mt-0.5" />
                   <div>
-                    <div className="font-medium text-green-700 text-sm">Valid curriculum!</div>
-                    <div className="text-green-600 text-xs mt-0.5">Ready to import</div>
+                    <div className="font-medium text-green-700 text-sm">"{parsed.curriculum.title}"</div>
+                    <div className="text-green-600 text-sm">
+                      {parsed.curriculum.level} · {parsed.curriculum.modules.length} modules · Ready to import
+                    </div>
                   </div>
                 </div>
-                {/* Preview */}
-                <div className="bg-white rounded-lg p-4 text-sm space-y-1 mb-4 border border-green-100">
-                  <div><span className="text-neutral-400">Title: </span><span className="font-medium">{parsed.curriculum.title}</span></div>
-                  <div><span className="text-neutral-400">Level: </span><span className="font-medium">{parsed.curriculum.level}</span></div>
-                  <div><span className="text-neutral-400">Modules: </span><span className="font-medium">{parsed.curriculum.modules.length}</span></div>
-                  <div><span className="text-neutral-400">Lessons: </span><span className="font-medium">{parsed.curriculum.modules.flatMap(m => m.units.flatMap(u => u.lessons)).length}</span></div>
-                  {parsed.curriculum.description && <div><span className="text-neutral-400">Description: </span><span>{parsed.curriculum.description}</span></div>}
-                </div>
-                <div className="flex gap-3">
-                  <Button onClick={handleImport} className="flex-1">
-                    <Upload size={15} /> Import Curriculum
-                  </Button>
-                  <Button variant="outline" onClick={() => { setParsed(null); setParseStatus("idle") }}>
-                    Cancel
-                  </Button>
-                </div>
+                <Button
+                  onClick={handleImport}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  size="sm"
+                >
+                  Import
+                </Button>
               </div>
             )}
           </CardContent>
         </Card>
 
         {/* Existing Curriculums */}
-        <div>
-          <h2 className="font-serif text-lg font-semibold mb-4">Imported Curriculums ({state.curriculums.length})</h2>
-          {state.curriculums.length === 0 ? (
-            <p className="text-neutral-400 text-sm">No curriculums imported yet.</p>
-          ) : (
-            <div className="space-y-3">
+        <Card>
+          <CardContent className="p-6">
+            <div className="text-xs uppercase tracking-widest text-neutral-400 mb-4">Your Curriculums</div>
+            <div className="space-y-2">
               {state.curriculums.map((c) => {
-                const cfg = LEVEL_CONFIG[c.level]
+                const lcfg = LEVEL_CONFIG[c.level]
                 return (
-                  <div key={c.id} className="flex items-center gap-4 bg-white border border-neutral-200 rounded-xl p-4">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="font-medium text-sm">{c.title}</span>
-                        <span
-                          className="text-xs px-2 py-0.5 rounded-md font-semibold"
-                          style={{ background: cfg.bg, color: cfg.color, border: `1px solid ${cfg.border}` }}
-                        >
-                          {c.level}
-                        </span>
-                      </div>
+                  <div key={c.id} className="flex items-center gap-3 p-3 rounded-lg bg-neutral-50 border border-neutral-100">
+                    <FileJson size={16} className="text-neutral-400 flex-shrink-0" />
+                    <div className="flex-1">
+                      <div className="text-sm font-medium text-neutral-700">{c.title}</div>
                       <div className="text-xs text-neutral-400">
-                        {c.modules.length} modules · {c.modules.flatMap(m => m.units.flatMap(u => u.lessons)).length} lessons
-                        {c.author && ` · by ${c.author}`}
+                        {c.modules.length} modules · {c.description ? c.description.slice(0, 50) + "..." : "No description"}
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleDelete(c.id, c.title)}
-                      className="text-neutral-300 hover:text-red-400 transition-colors p-1.5 rounded-lg hover:bg-red-50"
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-md font-semibold"
+                      style={{ background: lcfg.bg, color: lcfg.color, border: `1px solid ${lcfg.border}` }}
                     >
-                      <Trash2 size={16} />
-                    </button>
+                      {c.level}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(c.id, c.title)}
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    >
+                      <Trash2 size={14} />
+                    </Button>
                   </div>
                 )
               })}
             </div>
-          )}
-        </div>
-
-        {/* Schema Reference */}
-        <div className="mt-10">
-          <h2 className="font-serif text-lg font-semibold mb-3">JSON Schema Reference</h2>
-          <pre className="bg-neutral-900 text-neutral-100 rounded-xl p-5 text-xs overflow-x-auto leading-relaxed">
-{`{
-  "curriculum": {
-    "id": "my-curriculum-id",
-    "title": "My Curriculum",
-    "description": "Optional description",
-    "level": "B2",           // A1 | A2 | B1 | B2 | C1 | C2
-    "author": "Optional",
-    "modules": [
-      {
-        "id": "m1",
-        "title": "Module Title",
-        "units": [
-          {
-            "id": "u1",
-            "title": "Unit Title",
-            "lessons": [
-              {
-                "id": "l1",
-                "title": "Lesson Title",
-                "xp": 50,
-                "type": "flashcard", // flashcard|quiz|fill_blank
-                                      // writing|speech|reading
-                                      // listening
-                "content": { ... }   // see docs
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-}`}
-          </pre>
-        </div>
+          </CardContent>
+        </Card>
       </div>
   )
 }

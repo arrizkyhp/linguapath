@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { loadState, getDueReviews, scheduleReview } from "@/lib/store";
+import { loadStateAsync, getDueReviewsAsync, scheduleReviewAsync, loadState } from "@/lib/store";
 import { dispatchStateUpdate } from "@/components/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -41,12 +41,15 @@ export default function ReviewsPage() {
   const justCompleted = useRef(false);
 
   useEffect(() => {
-    const s = loadState();
-    if (!s.onboarding_complete) {
-      router.push("/onboarding");
-      return;
+    async function load() {
+      const s = await loadStateAsync()
+      if (!s.onboarding_complete) {
+        router.push("/onboarding");
+        return;
+      }
+      setState(s);
     }
-    setState(s);
+    load()
   }, [router]);
   
   useEffect(() => {
@@ -64,63 +67,60 @@ export default function ReviewsPage() {
     if (!state) return;
     if (justCompleted.current) return;
 
-    const dueReviews: ReviewItem[] = [];
+    async function loadDueReviews(currentState: typeof state) {
+      if (!currentState) return;
+      
+      const dueReviews: ReviewItem[] = [];
+      const curriculums = currentState.curriculums;
 
-    for (const curriculum of state.curriculums) {
-      const due = getDueReviews(curriculum.id);
-      for (const { lessonId, progress } of due) {
-        const lesson = findLesson(curriculum, lessonId);
-        if (lesson) {
-          const difficultCount = progress.difficult_items?.length || 0;
-          const total = progress.total_items || 1;
-          const correct = progress.correct_items || 0;
-          dueReviews.push({
-            curriculumId: curriculum.id,
-            lessonId,
-            lesson,
-            curriculum,
-            nextReviewDate: progress.next_review_date!,
-            intervalDays: progress.interval_days ?? 1,
-            reviewCount: progress.review_count ?? 0,
-            difficultItemsCount: difficultCount,
-            totalItems: total,
-            accuracy: Math.round((correct / total) * 100),
-          });
+      for (const curriculum of curriculums) {
+        const due = await getDueReviewsAsync(curriculum.id);
+        for (const { lessonId, progress } of due) {
+          const lesson = findLesson(curriculum, lessonId);
+          if (lesson) {
+            const difficultCount = progress.difficult_items?.length || 0;
+            const total = progress.total_items || 1;
+            const correct = progress.correct_items ?? 0;
+            dueReviews.push({
+              curriculumId: curriculum.id,
+              lessonId,
+              lesson,
+              curriculum,
+              nextReviewDate: progress.next_review_date!,
+              intervalDays: progress.interval_days ?? 1,
+              reviewCount: progress.review_count ?? 0,
+              difficultItemsCount: difficultCount,
+              totalItems: total,
+              accuracy: Math.round((correct / total) * 100),
+            });
+          }
         }
       }
-    }
 
-    const sortedReviews = dueReviews.sort((a, b) => 
-      new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
-    );
-    
-    setReviews(sortedReviews);
-    
-    if (sortedReviews.length > 0 && sessionStartCount === null) {
-      const newCount = sortedReviews.length;
-      setSessionStartCount(newCount);
-      sessionStorage.setItem("reviews_session_start", newCount.toString());
+      const sortedReviews = dueReviews.sort((a, b) => 
+        new Date(a.nextReviewDate).getTime() - new Date(b.nextReviewDate).getTime()
+      );
+      
+      setReviews(sortedReviews);
+      
+      if (sortedReviews.length > 0 && sessionStartCount === null) {
+        const newCount = sortedReviews.length;
+        setSessionStartCount(newCount);
+        sessionStorage.setItem("reviews_session_start", newCount.toString());
+      }
+      
+      justCompleted.current = false;
     }
     
-    justCompleted.current = false;
+    loadDueReviews(state);
   }, [state, sessionStartCount]);
 
-  function findLesson(curriculum: Curriculum, lessonId: string): Lesson | null {
-    for (const module of curriculum.modules) {
-      for (const unit of module.units) {
-        const lesson = unit.lessons.find((l) => l.id === lessonId);
-        if (lesson) return lesson;
-      }
-    }
-    return null;
-  }
-
-  function handleCompleteReview(performance: ReviewPerformance) {
+  async function handleCompleteReview(performance: ReviewPerformance) {
     if (!state) return;
     const currentReview = reviews[currentReviewIndex];
     if (!currentReview) return;
 
-    scheduleReview(currentReview.curriculumId, currentReview.lessonId, performance);
+    await scheduleReviewAsync(currentReview.curriculumId, currentReview.lessonId, performance);
     dispatchStateUpdate();
 
     justCompleted.current = true;
@@ -148,6 +148,16 @@ export default function ReviewsPage() {
       setShowPerformanceRating(false);
       window.history.replaceState({}, '', '/reviews');
     }
+  }
+
+  function findLesson(curriculum: Curriculum, lessonId: string): Lesson | null {
+    for (const module of curriculum.modules) {
+      for (const unit of module.units) {
+        const lesson = unit.lessons.find((l) => l.id === lessonId);
+        if (lesson) return lesson;
+      }
+    }
+    return null;
   }
 
   if (!state) return null;

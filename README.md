@@ -21,7 +21,6 @@ Open [http://localhost:3000](http://localhost:3000)
 - **TanStack Query**
 - **pnpm**
 - **IndexedDB** (via Dexie.js) — async storage with 50MB+ capacity
-- **localStorage** fallback (legacy support)
 
 ### AI & ML
 
@@ -81,6 +80,7 @@ All user data is stored **locally in your browser** using **IndexedDB** (via Dex
 - **50MB+ capacity** — 10x more than localStorage
 - **Async operations** — No UI blocking
 - **Automatic migration** — Existing localStorage data is migrated on first load
+- **Zero data loss** — Seamless migration preserves all progress
 
 ### Backup Your Progress
 
@@ -88,6 +88,28 @@ We recommend **exporting your progress regularly** (Settings → Export Progress
 - Browser data clearing
 - Browser updates
 - Device changes
+
+### Storage Architecture
+
+```typescript
+// IndexedDB Tables
+- state: { key, state: AppState }      // User progress, XP, streaks, curriculums
+- tabs:  { curriculumId, tabs }         // Expanded modules/units per curriculum
+- meta:  { key, migrated, timestamp }   // Migration tracking
+```
+
+### API Pattern
+
+```typescript
+// Async-first (uses IndexedDB)
+await loadStateAsync()
+await saveStateAsync(state)
+await completeLessonAsync(...)
+
+// Sync fallback (uses localStorage, legacy only)
+loadState()
+saveState(state)
+```
 
 ## Curriculum JSON Schema
 
@@ -133,3 +155,83 @@ We recommend **exporting your progress regularly** (Settings → Export Progress
 | `speech` | 🎤 | Whisper transcription, timer, keyword detection | `{ prompt, duration_seconds, keywords_to_use? }` |
 | `reading` | 📖 | Comprehension passages | `{ text, questions: [...] }` |
 | `listening` | 🎧 | Kokoro TTS audio, speed control | `{ text, voice?, speed?, questions: [...] }` |
+
+## Project Structure
+
+```
+linguapath/
+├── src/
+│   ├── app/                    # Next.js App Router pages
+│   │   ├── dashboard/          # User dashboard with stats
+│   │   ├── curriculum/         # Curriculum list and detail
+│   │   ├── lesson/             # Lesson player (all types)
+│   │   ├── reviews/            # Spaced repetition reviews
+│   │   ├── import/             # Import curriculum JSON
+│   │   ├── settings/           # Export/import, clear data
+│   │   └── onboarding/         # Level selection, placement test
+│   ├── lib/
+│   │   ├── db.ts               # Dexie IndexedDB layer
+│   │   ├── store.ts            # State management (async + sync)
+│   │   ├── config.ts           # CEFR levels, lesson type config
+│   │   └── sampleData.ts       # Sample curriculum, placement test
+│   ├── components/
+│   │   ├── AppLayout.tsx       # Main layout with sidebar
+│   │   ├── Sidebar.tsx         # Navigation sidebar
+│   │   └── ui/                 # shadcn/ui components
+│   └── types/
+│       └── curriculum.ts       # TypeScript type definitions
+├── public/
+│   └── curriculum-template.json
+└── package.json
+```
+
+## Key Features
+
+### IndexedDB Migration
+
+On first load after install/update:
+1. Checks if localStorage has existing data
+2. Copies all data to IndexedDB (state + tabs)
+3. Marks migration complete in meta table
+4. All subsequent operations use IndexedDB
+
+```typescript
+// AppLayout.tsx - Initializes DB on app start
+useEffect(() => {
+  async function init() {
+    await ensureDB()        // Migrate if needed
+    const s = await loadStateAsync()  // Read from IndexedDB
+    setState(s)
+  }
+  init()
+}, [])
+```
+
+### Export/Import Format
+
+```json
+{
+  "version": 1,
+  "exported_at": "2026-03-08T12:00:00.000Z",
+  "state": {
+    "onboarding_complete": true,
+    "current_level": "B2",
+    "total_xp": 500,
+    "streak_days": 7,
+    "curriculums": [...],
+    "progress": [...]
+  }
+}
+```
+
+### Spaced Repetition (SuperMemo-2)
+
+Review scheduling based on performance rating (1-5):
+- Rating ≥ 3: Increases interval using ease factor
+- Rating < 3: Resets interval to 1 day
+- Adjusts ease factor based on difficulty
+- Tracks difficult items per lesson
+
+---
+
+Built with ❤️ for English learners everywhere.

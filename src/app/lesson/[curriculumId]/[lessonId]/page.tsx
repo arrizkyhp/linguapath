@@ -2,7 +2,14 @@
 import { useEffect, useState, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import confetti from "canvas-confetti";
-import { loadStateAsync, completeLessonAsync, getLessonProgressAsync, setLastLessonAsync, loadState, setLastLesson } from "@/lib/store";
+import {
+  loadStateAsync,
+  completeLessonAsync,
+  getLessonProgressAsync,
+  setLastLessonAsync,
+  loadState,
+  setLastLesson,
+} from "@/lib/store";
 import { LESSON_TYPE_CONFIG } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -167,21 +174,28 @@ export default function LessonPage() {
   const [done, setDone] = useState(false);
   const [alreadyComplete, setAlreadyComplete] = useState(false);
   const [searchParams, setSearchParams] = useState<{ review?: string }>({});
-  const [nextLesson, setNextLesson] = useState<{ curriculumId: string; lessonId: string } | null>(null);
+  const [nextLesson, setNextLesson] = useState<{
+    curriculumId: string;
+    lessonId: string;
+  } | null>(null);
 
   // Flashcard state
   const [cardIdx, setCardIdx] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [shuffledCardOrder, setShuffledCardOrder] = useState<number[]>([]);
-  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>([]);
+  const [difficultCardIndices, setDifficultCardIndices] = useState<number[]>(
+    [],
+  );
 
   // Quiz / Reading state
   const [qIdx, setQIdx] = useState(0);
   const [selectedAns, setSelectedAns] = useState<number | null>(null);
   const [showExp, setShowExp] = useState(false);
   const [correctCount, setCorrectCount] = useState(0);
-  const [incorrectQuestionIndices, setIncorrectQuestionIndices] = useState<number[]>([]);
+  const [incorrectQuestionIndices, setIncorrectQuestionIndices] = useState<
+    number[]
+  >([]);
 
   // Fill blank state
   const [fbIdx, setFbIdx] = useState(0);
@@ -286,7 +300,12 @@ export default function LessonPage() {
       }
       if (foundLesson && foundModuleId && foundUnitId) {
         setLesson(foundLesson);
-        await setLastLessonAsync(curriculumId, foundModuleId, foundUnitId, lessonId);
+        await setLastLessonAsync(
+          curriculumId,
+          foundModuleId,
+          foundUnitId,
+          lessonId,
+        );
         findNextLesson(curr, foundModuleId, foundUnitId, lessonId);
       }
       const p = await getLessonProgressAsync(curriculumId, lessonId);
@@ -304,7 +323,7 @@ export default function LessonPage() {
     }
     loadLessonData();
   }, [curriculumId, lessonId]);
-  
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSearchParams({ review: params.get("review") || undefined });
@@ -312,7 +331,10 @@ export default function LessonPage() {
 
   useEffect(() => {
     if (lesson?.type === "writing" && parsedFeedback) {
-      localStorage.setItem("feedback-sidebar-open", String(feedbackSidebarOpen));
+      localStorage.setItem(
+        "feedback-sidebar-open",
+        String(feedbackSidebarOpen),
+      );
     }
   }, [feedbackSidebarOpen, lesson, parsedFeedback]);
 
@@ -367,7 +389,9 @@ export default function LessonPage() {
         }
       } else if (response.type === "AUDIO_READY") {
         // ✅ wavBytes is already a complete WAV file — just wrap in Blob
-        const blob = new Blob([response.wavBytes.buffer as ArrayBuffer], { type: "audio/wav" });
+        const blob = new Blob([response.wavBytes.buffer as ArrayBuffer], {
+          type: "audio/wav",
+        });
         const url = URL.createObjectURL(blob);
         audioUrlRef.current = url;
         setListeningAudioUrl(url);
@@ -409,41 +433,53 @@ export default function LessonPage() {
         particleCount: 200,
         spread: 120,
         origin: { y: 0.6 },
-        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+        colors: ["#FFD700", "#FFA500", "#FF6B6B", "#4ECDC4", "#45B7D1"],
       });
     }
   }, [done]);
 
   async function markComplete() {
     if (!lesson) return;
-    
+
     let itemPerformance: ItemPerformance[] | undefined;
-    
-    if (lesson.type === "quiz" || lesson.type === "reading" || lesson.type === "listening") {
-      const content = lesson.content as QuizContent | ReadingContent | ListeningContent;
-      const questions = 'questions' in content ? content.questions : [];
+
+    if (
+      lesson.type === "quiz" ||
+      lesson.type === "reading" ||
+      lesson.type === "listening"
+    ) {
+      const content = lesson.content as
+        | QuizContent
+        | ReadingContent
+        | ListeningContent;
+      const questions = "questions" in content ? content.questions : [];
       itemPerformance = questions.map((_, i) => ({
         itemIndex: i,
-        itemType: 'question' as const,
+        itemType: "question" as const,
         correct: !incorrectQuestionIndices.includes(i),
       }));
     } else if (lesson.type === "fill_blank") {
       const content = lesson.content as FillBlankContent;
       itemPerformance = content.sentences.map((_, i) => ({
         itemIndex: i,
-        itemType: 'sentence' as const,
+        itemType: "sentence" as const,
         correct: !incorrectQuestionIndices.includes(i),
       }));
     } else if (lesson.type === "flashcard") {
       const content = lesson.content as FlashcardContent;
       itemPerformance = content.cards.map((_, i) => ({
         itemIndex: i,
-        itemType: 'card' as const,
+        itemType: "card" as const,
         correct: !difficultCardIndices.includes(i),
       }));
     }
-    
-    await completeLessonAsync(curriculumId, lessonId, lesson.xp, itemPerformance);
+
+    await completeLessonAsync(
+      curriculumId,
+      lessonId,
+      lesson.xp,
+      itemPerformance,
+    );
     dispatchStateUpdate();
     toast(`+${lesson.xp} XP earned! 🎉`, "success");
     setDone(true);
@@ -453,7 +489,7 @@ export default function LessonPage() {
     curriculum: Curriculum,
     currentModuleId: string,
     currentUnitId: string,
-    currentLessonId: string
+    currentLessonId: string,
   ) {
     for (let m = 0; m < curriculum.modules.length; m++) {
       const module = curriculum.modules[m];
@@ -462,7 +498,7 @@ export default function LessonPage() {
           const unit = module.units[u];
           if (unit.id === currentUnitId) {
             const lessonIndex = unit.lessons.findIndex(
-              (l: { id: string }) => l.id === currentLessonId
+              (l: { id: string }) => l.id === currentLessonId,
             );
             if (lessonIndex < unit.lessons.length - 1) {
               const nextLesson = unit.lessons[lessonIndex + 1];
@@ -472,7 +508,11 @@ export default function LessonPage() {
               });
               return;
             }
-            for (let nextUnitIdx = u + 1; nextUnitIdx < module.units.length; nextUnitIdx++) {
+            for (
+              let nextUnitIdx = u + 1;
+              nextUnitIdx < module.units.length;
+              nextUnitIdx++
+            ) {
               const nextUnit = module.units[nextUnitIdx];
               if (nextUnit.lessons.length > 0) {
                 setNextLesson({
@@ -482,9 +522,16 @@ export default function LessonPage() {
                 return;
               }
             }
-            for (let nextModuleIdx = m + 1; nextModuleIdx < curriculum.modules.length; nextModuleIdx++) {
+            for (
+              let nextModuleIdx = m + 1;
+              nextModuleIdx < curriculum.modules.length;
+              nextModuleIdx++
+            ) {
               const nextModule = curriculum.modules[nextModuleIdx];
-              if (nextModule.units.length > 0 && nextModule.units[0].lessons.length > 0) {
+              if (
+                nextModule.units.length > 0 &&
+                nextModule.units[0].lessons.length > 0
+              ) {
                 setNextLesson({
                   curriculumId: curriculum.id,
                   lessonId: nextModule.units[0].lessons[0].id,
@@ -508,7 +555,7 @@ export default function LessonPage() {
         particleCount: 200,
         spread: 120,
         origin: { y: 0.6 },
-        colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
+        colors: ["#FFD700", "#FFA500", "#FF6B6B", "#4ECDC4", "#45B7D1"],
       });
     };
 
@@ -521,10 +568,14 @@ export default function LessonPage() {
                 <span className="relative z-10">🎉</span>
               </div>
               <h2 className="font-serif text-3xl font-bold mb-2">
-                {searchParams.review === "true" ? "Review Complete!" : "Lesson Complete!"}
+                {searchParams.review === "true"
+                  ? "Review Complete!"
+                  : "Lesson Complete!"}
               </h2>
               <p className="text-neutral-500 mb-2">
-                {searchParams.review === "true" ? "You earned for this review" : "You earned"}
+                {searchParams.review === "true"
+                  ? "You earned for this review"
+                  : "You earned"}
               </p>
               <div className="text-4xl font-bold text-yellow-500 mb-8">
                 +{lesson.xp} XP
@@ -537,7 +588,9 @@ export default function LessonPage() {
                 🎆
               </button>
               <p className="mb-6 text-neutral-600">
-                {searchParams.review === "true" ? "Ready for your next review?" : "Ready to continue learning?"}
+                {searchParams.review === "true"
+                  ? "Ready for your next review?"
+                  : "Ready to continue learning?"}
               </p>
               <div className="flex gap-3 justify-center">
                 {searchParams.review === "true" ? (
@@ -550,7 +603,11 @@ export default function LessonPage() {
                   <>
                     <Button
                       className="bg-green-600 hover:bg-green-700"
-                      onClick={() => router.push(`/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`)}
+                      onClick={() =>
+                        router.push(
+                          `/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`,
+                        )
+                      }
                     >
                       Next Lesson <ChevronRight size={16} />
                     </Button>
@@ -577,13 +634,14 @@ export default function LessonPage() {
               <span className="relative z-10">🎉</span>
             </div>
             <h2 className="font-serif text-3xl font-bold mb-2">
-              {searchParams.review === "true" ? "Review Session Complete!" : "Curriculum Complete!"}
+              {searchParams.review === "true"
+                ? "Review Session Complete!"
+                : "Curriculum Complete!"}
             </h2>
             <p className="text-neutral-500 mb-6">
-              {searchParams.review === "true" 
+              {searchParams.review === "true"
                 ? "You've completed all your reviews for now. Great job staying on top of your learning! 🌟"
-                : "You've successfully completed all lessons in this curriculum. Amazing job! 🌟"
-              }
+                : "You've successfully completed all lessons in this curriculum. Amazing job! 🌟"}
             </p>
             <div className="text-4xl font-bold text-yellow-500 mb-8">
               +{lesson.xp} XP
@@ -598,9 +656,17 @@ export default function LessonPage() {
             <div className="flex gap-3 justify-center">
               <Button
                 variant="outline"
-                onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
+                onClick={() =>
+                  router.push(
+                    searchParams.review === "true"
+                      ? "/reviews?completed=true"
+                      : `/curriculum/${curriculumId}`,
+                  )
+                }
               >
-                {searchParams.review === "true" ? "Back to Reviews" : "Back to Curriculum"}
+                {searchParams.review === "true"
+                  ? "Back to Reviews"
+                  : "Back to Curriculum"}
               </Button>
               {searchParams.review !== "true" && (
                 <Button onClick={() => router.push("/dashboard")}>
@@ -618,7 +684,13 @@ export default function LessonPage() {
   const Header = () => (
     <div className="border-b border-neutral-100 px-8 py-4 flex items-center gap-4 bg-white">
       <button
-        onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
+        onClick={() =>
+          router.push(
+            searchParams.review === "true"
+              ? "/reviews?completed=true"
+              : `/curriculum/${curriculumId}`,
+          )
+        }
         className="text-neutral-400 hover:text-neutral-700 transition-colors"
       >
         <ChevronLeft size={20} />

@@ -518,9 +518,11 @@ export default function LessonPage() {
                 <span className="relative z-10">🎉</span>
               </div>
               <h2 className="font-serif text-3xl font-bold mb-2">
-                Lesson Complete!
+                {searchParams.review === "true" ? "Review Complete!" : "Lesson Complete!"}
               </h2>
-              <p className="text-neutral-500 mb-2">You earned</p>
+              <p className="text-neutral-500 mb-2">
+                {searchParams.review === "true" ? "You earned for this review" : "You earned"}
+              </p>
               <div className="text-4xl font-bold text-yellow-500 mb-8">
                 +{lesson.xp} XP
               </div>
@@ -532,21 +534,31 @@ export default function LessonPage() {
                 🎆
               </button>
               <p className="mb-6 text-neutral-600">
-                Ready to continue learning?
+                {searchParams.review === "true" ? "Ready for your next review?" : "Ready to continue learning?"}
               </p>
               <div className="flex gap-3 justify-center">
-                <Button
-                  className="bg-green-600 hover:bg-green-700"
-                  onClick={() => router.push(`/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`)}
-                >
-                  Next Lesson <ChevronRight size={16} />
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
-                >
-                  {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
-                </Button>
+                {searchParams.review === "true" ? (
+                  <Button
+                    onClick={() => router.push("/reviews?completed=true")}
+                  >
+                    Back to Reviews
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => router.push(`/lesson/${nextLesson.curriculumId}/${nextLesson.lessonId}`)}
+                    >
+                      Next Lesson <ChevronRight size={16} />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => router.push(`/curriculum/${curriculumId}`)}
+                    >
+                      Back to Curriculum
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -562,10 +574,13 @@ export default function LessonPage() {
               <span className="relative z-10">🎉</span>
             </div>
             <h2 className="font-serif text-3xl font-bold mb-2">
-              Curriculum Complete!
+              {searchParams.review === "true" ? "Review Session Complete!" : "Curriculum Complete!"}
             </h2>
             <p className="text-neutral-500 mb-6">
-              You've successfully completed all lessons in this curriculum. Amazing job! 🌟
+              {searchParams.review === "true" 
+                ? "You've completed all your reviews for now. Great job staying on top of your learning! 🌟"
+                : "You've successfully completed all lessons in this curriculum. Amazing job! 🌟"
+              }
             </p>
             <div className="text-4xl font-bold text-yellow-500 mb-8">
               +{lesson.xp} XP
@@ -582,11 +597,13 @@ export default function LessonPage() {
                 variant="outline"
                 onClick={() => router.push(searchParams.review === "true" ? "/reviews?completed=true" : `/curriculum/${curriculumId}`)}
               >
-                {searchParams.review === "true" ? "Back to Review" : "Back to Curriculum"}
+                {searchParams.review === "true" ? "Back to Reviews" : "Back to Curriculum"}
               </Button>
-              <Button onClick={() => router.push("/dashboard")}>
-                Dashboard
-              </Button>
+              {searchParams.review !== "true" && (
+                <Button onClick={() => router.push("/dashboard")}>
+                  Dashboard
+                </Button>
+              )}
             </div>
           </div>
         </div>

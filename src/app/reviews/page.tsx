@@ -139,12 +139,14 @@ export default function ReviewsPage() {
         origin: { y: 0.6 },
         colors: ['#FFD700', '#FFA500', '#FF6B6B', '#4ECDC4', '#45B7D1'],
       });
+      window.history.replaceState({}, '', '/reviews');
       router.replace("/reviews");
     } else {
       const nextIndex = Math.min(currentReviewIndex, updatedReviews.length - 1);
       setCurrentReviewIndex(nextIndex);
       setReviews(updatedReviews);
       setShowPerformanceRating(false);
+      window.history.replaceState({}, '', '/reviews');
     }
   }
 

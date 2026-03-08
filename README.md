@@ -14,21 +14,61 @@ Open [http://localhost:3000](http://localhost:3000)
 ## Tech Stack
 
 - **Next.js 16.1.6** (App Router)
+- **React 19**
 - **TypeScript**
 - **Tailwind CSS**
 - **shadcn/ui**
+- **TanStack Query**
 - **pnpm**
 - **localStorage** (no backend needed)
+
+### AI & ML
+
+- **Whisper** (`onnx-community/whisper-base`) — On-device speech-to-text for speech lessons
+- **Kokoro TTS** (`onnx-community/Kokoro-82M-v1.0-ONNX`) — On-device text-to-speech for listening lessons
+- **LanguageTool API** — Grammar checking for writing lessons
+- **Hugging Face Transformers** — Web ML inference in the browser
 
 ## Features
 
 - 🎯 **Placement Test** — find your CEFR level (A1–C2) automatically
-- 📚 **Curriculum Import** — import any curriculum via JSON file
+- 📚 **Curriculum Import** — import any curriculum via JSON file with validation
 - 🔒 **Lock System** — lessons unlock progressively
+- 💾 **Export/Import Progress** — backup and restore your learning data
 - 7 **Lesson Types**: flashcard, quiz, fill_blank, writing, speech, reading, listening
+
+### AI-Powered Features
+
+- 🎤 **Speech Lessons** — Whisper AI transcription with real-time mic feedback
+- 🎧 **Listening Lessons** — Kokoro TTS with adjustable speed (0.75x–1.25x)
+- ✍️ **Writing Lessons** — LanguageTool grammar checking + AI feedback (ChatGPT/Claude/Gemini)
+- 📖 **Reading Lessons** — Comprehension passages with questions
+
+### Gamification
+
 - 📊 **Progress Tracking** — XP, streaks, completion tracking
-- 🧠 **Spaced Repetition** — AI-powered review scheduling using SuperMemo-2 algorithm
-- ⚙️ **Settings** — change level, reset progress, clear data
+- 🎉 **Celebrations** — Confetti on lesson completion
+- 🔥 **Daily Challenges** — Random writing/speaking prompts on dashboard
+- 📈 **Progress Bars** — Visual completion for curriculums/modules/units
+
+### Spaced Repetition
+
+- 🧠 **SuperMemo-2 Algorithm** — AI-powered review scheduling
+- ⭐ **Performance Rating** — Rate your recall (1–5) after each review
+- 📅 **Smart Scheduling** — Reviews based on difficulty and ease factor
+
+### Data Management
+
+- ✅ **JSON Validator** — Schema validation with clear error messages before import
+- 📤 **Export Progress** — Download your progress as JSON backup
+- 📥 **Import Backup** — Restore from previously exported backup
+- 💾 **Storage Monitoring** — View localStorage usage
+
+### Settings
+
+- ⚙️ **Level Configuration** — Change CEFR level anytime
+- 🗑️ **Reset Progress** — Clear lesson completions and XP
+- 🔴 **Clear All Data** — Delete everything and restart onboarding
 
 ## Curriculum JSON Schema
 
@@ -65,12 +105,12 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ### Lesson Types
 
-| Type | Content Shape |
-|------|--------------|
-| `flashcard` | `{ cards: [{ front, back, example? }] }` |
-| `quiz` | `{ questions: [{ question, options, answer, explanation? }] }` |
-| `fill_blank` | `{ sentences: [{ text, answer, options?, explanation? }] }` |
-| `writing` | `{ prompt, min_words?, ai_feedback? }` |
-| `speech` | `{ prompt, duration_seconds, keywords_to_use? }` |
-| `reading` | `{ text, questions: [...] }` |
-| `listening` | `{ text, voice?, questions: [...] }` |
+| Type | Icon | Features | Content Shape |
+|------|------|----------|---------------|
+| `flashcard` | 🃏 | Flip cards, shuffle, mark difficult | `{ cards: [{ front, back, example? }] }` |
+| `quiz` | ❓ | Multiple choice, explanations | `{ questions: [{ question, options, answer, explanation? }] }` |
+| `fill_blank` | ✏️ | Sentence completion, instant feedback | `{ sentences: [{ text, answer, options?, explanation? }] }` |
+| `writing` | ✍️ | Grammar checking (LanguageTool), AI feedback | `{ prompt, min_words?, ai_feedback? }` |
+| `speech` | 🎤 | Whisper transcription, timer, keyword detection | `{ prompt, duration_seconds, keywords_to_use? }` |
+| `reading` | 📖 | Comprehension passages | `{ text, questions: [...] }` |
+| `listening` | 🎧 | Kokoro TTS audio, speed control | `{ text, voice?, speed?, questions: [...] }` |

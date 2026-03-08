@@ -425,3 +425,41 @@ export function isModuleCompleted(module: { units: { lessons: { id: string }[] }
   const prog = getModuleProgress(module, progress);
   return prog.total > 0 && prog.completed === prog.total;
 }
+
+export function exportState(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw) as AppState;
+    const exportData = {
+      version: 1,
+      exported_at: new Date().toISOString(),
+      state: state,
+    };
+    return JSON.stringify(exportData, null, 2);
+  } catch {
+    return null;
+  }
+}
+
+export function importState(jsonString: string): { success: boolean; error?: string } {
+  if (typeof window === "undefined") return { success: false, error: "Not in browser environment" };
+  try {
+    const data = JSON.parse(jsonString);
+    if (!data.version || !data.state) {
+      return { success: false, error: "Invalid export format: missing version or state" };
+    }
+    if (data.version !== 1) {
+      return { success: false, error: `Unsupported export version: ${data.version}` };
+    }
+    const state = data.state as AppState;
+    if (!state.onboarding_complete || !state.current_level || !Array.isArray(state.curriculums)) {
+      return { success: false, error: "Invalid state structure" };
+    }
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: `Failed to parse JSON: ${e instanceof Error ? e.message : "Unknown error"}` };
+  }
+}

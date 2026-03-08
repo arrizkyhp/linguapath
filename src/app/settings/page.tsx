@@ -1,7 +1,7 @@
 "use client"
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { loadState, saveState, clearAllData, getStorageSize } from "@/lib/store"
+import { loadState, saveState, clearAllData, getStorageSize, exportState, importState } from "@/lib/store"
 import { LEVEL_CONFIG, LEVEL_ORDER } from "@/lib/config"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -15,6 +15,7 @@ export default function SettingsPage() {
   const [state, setState] = useState<AppState | null>(null)
   const [storageSize, setStorageSize] = useState("0 KB")
   const [confirmClear, setConfirmClear] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const s = loadState()
@@ -45,6 +46,53 @@ export default function SettingsPage() {
     if (!confirmClear) { setConfirmClear(true); return }
     clearAllData()
     router.push("/onboarding")
+  }
+
+  function handleExport() {
+    const exported = exportState()
+    if (!exported) {
+      toast("Failed to export data", "error")
+      return
+    }
+    const blob = new Blob([exported], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `linguapath-backup-${new Date().toISOString().split("T")[0]}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    toast("Progress exported successfully", "success")
+  }
+
+  function handleImportClick() {
+    fileInputRef.current?.click()
+  }
+
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      const content = event.target?.result as string
+      const result = importState(content)
+      if (result.success) {
+        toast("Progress imported successfully", "success")
+        const s = loadState()
+        setState(s)
+        dispatchStateUpdate()
+        setStorageSize(getStorageSize())
+      } else {
+        toast(result.error || "Failed to import", "error")
+      }
+    }
+    reader.onerror = () => {
+      toast("Failed to read file", "error")
+    }
+    reader.readAsText(file)
+    e.target.value = ""
   }
 
   if (!state) return null
@@ -93,6 +141,29 @@ export default function SettingsPage() {
             <div className="flex items-center gap-3 text-sm">
               <div className="bg-neutral-100 rounded-lg px-3 py-2 font-mono text-neutral-600">{storageSize}</div>
               <span className="text-neutral-400">used</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Backup & Restore */}
+        <Card className="mb-6">
+          <CardContent className="p-6">
+            <h2 className="font-semibold mb-1">Backup & Restore</h2>
+            <p className="text-sm text-neutral-500 mb-4">Export your progress or restore from a backup</p>
+            <div className="flex gap-3">
+              <Button onClick={handleExport} variant="outline" size="sm" className="flex-1">
+                📤 Export Progress
+              </Button>
+              <Button onClick={handleImportClick} variant="outline" size="sm" className="flex-1">
+                📥 Import Backup
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImportFile}
+                className="hidden"
+              />
             </div>
           </CardContent>
         </Card>

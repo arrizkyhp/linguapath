@@ -1,6 +1,7 @@
 import Dexie, { Table } from "dexie";
 import type { AppState } from "@/types/curriculum";
 import type { OpenTabs } from "./store";
+import { getDefaultState } from "./store";
 
 export interface DBState {
   key: string;
@@ -97,7 +98,11 @@ export async function saveStateToDB(state: AppState): Promise<void> {
 export async function updateStateInDB(partial: Partial<AppState>): Promise<AppState> {
   const current = await loadStateFromDB();
   if (!current) {
-    throw new Error("No state found in database");
+    // No state exists, create default state with partial updates
+    const defaultState = getDefaultState();
+    const updated = { ...defaultState, ...partial };
+    await saveStateToDB(updated);
+    return updated;
   }
   const updated = { ...current, ...partial };
   await saveStateToDB(updated);
@@ -113,8 +118,11 @@ export async function completeOnboardingInDB(level: AppState["current_level"]): 
 }
 
 export async function addCurriculumToDB(curriculum: AppState["curriculums"][number]): Promise<void> {
-  const state = await loadStateFromDB();
-  if (!state) return;
+  let state = await loadStateFromDB();
+  if (!state) {
+    // Create default state if none exists
+    state = getDefaultState();
+  }
   
   const exists = state.curriculums.find((c) => c.id === curriculum.id);
   if (exists) {
@@ -157,8 +165,10 @@ export async function completeLessonInDB(
   xp: number,
   itemPerformance?: import("@/types/curriculum").ItemPerformance[]
 ): Promise<void> {
-  const state = await loadStateFromDB();
-  if (!state) return;
+  let state = await loadStateFromDB();
+  if (!state) {
+    state = getDefaultState();
+  }
   
   let cp = state.progress.find((p) => p.curriculum_id === curriculumId);
   if (!cp) {
@@ -221,7 +231,7 @@ export async function updateItemPerformanceInDB(
   await saveStateToDB(state);
 }
 
-function mergeItemPerformance(
+export function mergeItemPerformance(
   existing: import("@/types/curriculum").ItemPerformance[],
   newItems: import("@/types/curriculum").ItemPerformance[]
 ): import("@/types/curriculum").ItemPerformance[] {
@@ -522,7 +532,10 @@ export function addDays(dateString: string, days: number): string {
 
 export async function resetProgressInDB(): Promise<AppState> {
   const state = await loadStateFromDB();
-  if (!state) throw new Error("No state found");
+  if (!state) {
+    // No state exists, return default state
+    return getDefaultState();
+  }
   
   const updated = { 
     ...state, 
